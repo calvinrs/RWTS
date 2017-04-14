@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!--
+      The RWTS - Multivariate Statistics parameters will be replaced with the
+      document title extracted from the <h1> element or
+      file name, if there is no <h1> heading
+    -->
+    <title>RWTS - Multivariate Statistics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+    <link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet">
+    <link type="text/css" rel="stylesheet" href="styles/style.css" />
+    <script src="styles/tips.js" type="text/javascript"></script>
+    
+    <script language="javascript" type="text/javascript">
+      function init()
+      {
+        try {
+          websocket = new WebSocket("ws://" + window.location.hostname + ":" + window.location.port + "/websocket");
+          websocket.onmessage = function(evt) { location.reload(); };
+        } catch (e) { /* silently ignore lack of websockets */ }
+      }
+      window.addEventListener("load", init, false);
+    </script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fslab.org">fslab.org</a></li>
+          <li><a href="http://fsharp.github.io/FSharp.Data/">F# Data</a></li>
+          <li><a href="http://bluemountaincapital.github.io/Deedle">Deedle</a></li>
+          <li><a href="http://bluemountaincapital.github.io/FSharpRProvider">R Provider</a></li>
+          <li><a href="http://tahahachana.github.io/XPlot/">XPlot</a></li>
+          <li><a href="http://www.mathdotnet.com/">Math.Net</a></li>
+        </ul>
+        <h3 class="muted">Journal</h3>
+      </div>
+      <hr />
+      <div class="row" style="margin-top:30px">
+        <div class="span1"></div>
+        <div class="span10" id="main">
+          <h1>RWTS - Multivariate Statistics</h1>
+<p>Multivariate - using more than one variable.</p>
+<p>For RWTS, that is to say focusing on multiple Asset at a time, focusing on the relationship between assets - i.e. correlation-style calculations.</p>
+<h1>Required Packages</h1>
+<p>We will require references to:</p>
+<p>System - for DateTime</p>
+<p>Deedle - to arrange time series data into Key -&gt; Value "Frames"</p>
+<p>Mathnet.Numerics - for off the shelf statistical functions</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">open</span> <span class="i">System</span>
+<span class="k">open</span> <span class="i">Deedle</span>
+
+<span class="k">open</span> <span class="i">MathNet</span><span class="o">.</span><span class="i">Numerics</span>
+<span class="k">open</span> <span class="i">MathNet</span><span class="o">.</span><span class="i">Numerics</span><span class="o">.</span><span class="i">Statistics</span>;
+</code></pre></td>
+</tr>
+</table>
+<h1>Data Import</h1>
+<p>Like in the multivariate case , we can mock up a "database" of time series data by pulling in a full set of data, up to EndDec2016.
+Here, we will jump ahead to the "Annualised quarterly returns" series - this will mimic the process when we have a tool or service that will provide returns as a time series.<br />
+The data here is the original RWTS total return results from the database.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">// I can create a function to return all &lt;float&gt; values for each Asset</span>
+<span class="k">let</span> <span class="i">ReturnSeries</span> (<span class="i">allSeries</span><span class="o">:</span> <span class="i">Frame</span><span class="o">&lt;</span><span class="i">DateTime</span>,<span class="i">string</span><span class="o">&gt;</span>) <span class="i">asset</span> <span class="o">=</span> 
+    <span class="i">allSeries</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">string</span><span class="o">&gt;</span>(<span class="i">asset</span>) <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">filter</span> (<span class="k">fun</span> <span class="i">k</span> <span class="i">v</span> <span class="k">-&gt;</span> <span class="i">v</span> <span class="o">&lt;&gt;</span> <span class="s">&quot;null&quot;</span>) <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">map</span> (<span class="k">fun</span> <span class="i">k</span> <span class="i">v</span> <span class="k">-&gt;</span> <span class="i">float</span> <span class="i">v</span>)
+
+<span class="k">let</span> <span class="i">XSReturnsfromCSV</span> <span class="o">=</span> 
+    <span class="i">Frame</span><span class="o">.</span><span class="i">ReadCsv</span><span class="o">&lt;</span><span class="i">DateTime</span><span class="o">&gt;</span>(<span class="i">root</span> <span class="o">+</span> <span class="s">&quot;HistoricReturnsQuarterly_EndDec2016_InColumns.csv&quot;</span>, <span class="i">indexCol</span><span class="o">=</span><span class="s">&quot;Index&quot;</span>, <span class="i">missingValues</span><span class="o">=</span>[|<span class="s">&quot;null&quot;</span>|])
+    <span class="o">|&gt;</span> <span class="i">Frame</span><span class="o">.</span><span class="i">sortRowsByKey</span>
+
+<span class="k">let</span> <span class="i">returnXSReturnSeries</span> <span class="o">=</span> <span class="i">ReturnSeries</span> <span class="i">XSReturnsfromCSV</span>
+
+<span class="c">// We can now call this function to &quot;import&quot; our time series of data</span>
+<span class="k">let</span> <span class="i">testXSRetSeries</span> <span class="o">=</span> <span class="i">returnXSReturnSeries</span> <span class="s">&quot;E_CNY&quot;</span>
+</code></pre></td>
+</tr>
+</table>
+<h1>Historic 10Y Correlations</h1>
+<p>We can introduce how we will approach multivariate statistics by taking the simplest example.<br />
+We wish to calculate "Historic 10Y Correlations", which are simply the correlation between asset returns over the last 10 years.</p>
+<p>So to calculate correlation between a number of assets, we will need to pull in all avaliable returns for our assets.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">exampleReturnDataFrame</span> <span class="o">=</span> [ 
+      <span class="s">&quot;ASX_200_A_REIT&quot;</span> <span class="o">=&gt;</span> <span class="i">returnXSReturnSeries</span> <span class="s">&quot;ASX_200_A_REIT&quot;</span>;  
+      <span class="s">&quot;ASX_200_BANKS&quot;</span> <span class="o">=&gt;</span> <span class="i">returnXSReturnSeries</span> <span class="s">&quot;ASX_200_BANKS&quot;</span> ;
+      <span class="s">&quot;China_25&quot;</span> <span class="o">=&gt;</span> <span class="i">returnXSReturnSeries</span> <span class="s">&quot;China_25&quot;</span>] <span class="o">|&gt;</span> <span class="i">Frame</span><span class="o">.</span><span class="i">ofColumns</span>
+</code></pre></td>
+</tr>
+</table>
+<table class="pre"><tr><td><pre><code>No value has been returned</code></pre></td></tr></table>
+<p>To define the 10Y period, we will need to define our calibraiton date.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">calibrationDate</span> <span class="o">=</span> <span class="i">DateTime</span>(<span class="n">2016</span>, <span class="n">12</span>, <span class="n">31</span>)
+<span class="k">let</span> <span class="i">tenYearsAgo</span> <span class="o">=</span> <span class="i">calibrationDate</span><span class="o">.</span><span class="i">AddYears</span>(<span class="o">-</span><span class="n">10</span>)
+
+<span class="c">// slice on a series</span>
+<span class="i">testXSRetSeries</span><span class="o">.</span><span class="i">Between</span>(<span class="i">tenYearsAgo</span>, <span class="i">calibrationDate</span>)
+<span class="c">// or on the combined frame</span>
+<span class="k">let</span> <span class="i">exampleHist10YReturns</span> <span class="o">=</span> <span class="i">exampleReturnDataFrame</span> <span class="o">|&gt;</span> <span class="i">Frame</span><span class="o">.</span><span class="i">filterRows</span> (<span class="k">fun</span> <span class="i">k</span> <span class="i">v</span> <span class="k">-&gt;</span> <span class="i">k</span> <span class="o">&gt;</span> <span class="i">tenYearsAgo</span> <span class="o">&amp;&amp;</span> <span class="i">k</span> <span class="o">&lt;=</span> <span class="i">calibrationDate</span>)
+</code></pre></td>
+</tr>
+</table>
+<p>Now that we have identically alligned time series, and assuming no missing values, we can take these series and calculate the correlation between them.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">myX</span> <span class="o">=</span> <span class="i">exampleHist10YReturns</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">float</span><span class="o">&gt;</span>(<span class="s">&quot;ASX_200_A_REIT&quot;</span>)<span class="o">.</span><span class="i">ValuesAll</span>
+<span class="k">let</span> <span class="i">myY</span> <span class="o">=</span> <span class="i">exampleHist10YReturns</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">float</span><span class="o">&gt;</span>(<span class="s">&quot;ASX_200_BANKS&quot;</span>)<span class="o">.</span><span class="i">ValuesAll</span>
+<span class="k">let</span> <span class="i">myZ</span> <span class="o">=</span> <span class="i">exampleHist10YReturns</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">float</span><span class="o">&gt;</span>(<span class="s">&quot;China_25&quot;</span>)<span class="o">.</span><span class="i">ValuesAll</span>
+
+<span class="k">let</span> <span class="i">myCorrelXY</span> <span class="o">=</span> <span class="i">Statistics</span><span class="o">.</span><span class="i">Correlation</span><span class="o">.</span><span class="i">Pearson</span>(<span class="i">myX</span>, <span class="i">myY</span>)
+<span class="k">let</span> <span class="i">myCorrelXZ</span> <span class="o">=</span> <span class="i">Statistics</span><span class="o">.</span><span class="i">Correlation</span><span class="o">.</span><span class="i">Pearson</span>(<span class="i">myX</span>, <span class="i">myZ</span>)
+<span class="k">let</span> <span class="i">myCorrelYZ</span> <span class="o">=</span> <span class="i">Statistics</span><span class="o">.</span><span class="i">Correlation</span><span class="o">.</span><span class="i">Pearson</span>(<span class="i">myY</span>, <span class="i">myZ</span>)
+</code></pre></td>
+</tr>
+</table>
+<p>We can arrange this data into a matrix if we wish, using the LinearAlgebra package's matrix type.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">open</span> <span class="i">MathNet</span><span class="o">.</span><span class="i">Numerics</span><span class="o">.</span><span class="i">LinearAlgebra</span>;
+
+<span class="k">let</span> <span class="i">correlMatrix</span> <span class="o">=</span> <span class="i">matrix</span> [ [<span class="n">1.0</span>; <span class="i">myCorrelXY</span>; <span class="i">myCorrelXZ</span>]
+                            [<span class="i">myCorrelXY</span>; <span class="n">1.0</span>; <span class="i">myCorrelYZ</span>]
+                            [<span class="i">myCorrelXZ</span>; <span class="i">myCorrelYZ</span>; <span class="n">1.0</span>] ]
+</code></pre></td>
+</tr>
+</table>
+<p>BONUS: We can test if a matrix is PSD like so:</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">oneLineIsPSD</span> <span class="o">=</span> <span class="i">correlMatrix</span><span class="o">.</span><span class="i">Evd</span>()<span class="o">.</span><span class="i">EigenValues</span><span class="o">.</span><span class="i">Real</span>() <span class="o">|&gt;</span> <span class="i">Seq</span><span class="o">.</span><span class="i">min</span> <span class="o">&gt;</span><span class="o">=</span> <span class="n">0.000001</span>
+</code></pre></td>
+</tr>
+</table>
+<p>We do not need to test this for our historic 10Y correlation matrix - its construction shoud ensure that this is true.</p>
+<h1>Unconditional Correlations</h1>
+<p>A slightly tricker calculation is the way in which we set our unconditional correlations.</p>
+<p>Like the historic correlations, we need to work with pairs of time series.
+For this calculation however, we need to be careful about the time period we are working over, conditional on the lifespan of both series in the pair.</p>
+<p>For this example, we can go back in time to the pre-DB RWTS sheet, so we can compare results. The TR series are slightly different, but we should get a similar result.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">// for the EWMA part of this, we will need to determine the initialisation value and the lambda value.</span>
+
+<span class="c">// lambda can be expressed as a value, or in terms of the Mean age of the data (25y) and the observations per year (4 for quarterly data) </span>
+<span class="k">let</span> <span class="i">uncCorrelLambda</span> <span class="o">=</span> (<span class="n">1.0</span> <span class="o">-</span> (<span class="n">1.0</span><span class="o">/</span><span class="n">4.0</span>) <span class="o">/</span> <span class="n">25.0</span>) <span class="c">//0.99</span>
+
+<span class="c">// the initialisation value is 0.005625, but will be scaled based on the asset type (equity or bond) and if the underlying economy matches for the assets</span>
+<span class="c">// in our example case, we will investigate equity assets that have different underlying economies, which gives us a scaling factor of 0.5</span>
+<span class="k">let</span> <span class="i">uncVarInit</span> <span class="o">=</span> <span class="n">0.005625</span>
+<span class="k">let</span> <span class="i">uncCovarInit</span> <span class="o">=</span> <span class="i">uncVarInit</span> <span class="o">*</span> <span class="n">0.5</span>
+
+<span class="c">// Set the calibration date</span>
+<span class="k">let</span> <span class="i">oldCalibrationDate</span> <span class="o">=</span> <span class="i">DateTime</span>(<span class="n">2009</span>, <span class="n">12</span>, <span class="n">31</span>)
+
+<span class="c">// We will take a pair of TR series, and truncate these to include data up to the calibration date only</span>
+<span class="k">let</span> <span class="i">seriesLH</span> <span class="o">=</span>  (<span class="i">returnXSReturnSeries</span> <span class="s">&quot;E_AUD&quot;</span>)<span class="o">.</span><span class="i">EndAt</span>(<span class="i">oldCalibrationDate</span>)
+<span class="k">let</span> <span class="i">seriesRH</span> <span class="o">=</span> (<span class="i">returnXSReturnSeries</span> <span class="s">&quot;E_HKD&quot;</span>)<span class="o">.</span><span class="i">EndAt</span>(<span class="i">oldCalibrationDate</span>)
+
+<span class="c">// we will need to take the mean value for each series. This is over the entire lifespan of each series. </span>
+<span class="c">// the Deedle Series class has its own univariate statistics, which we can use for simple stuff like mean, standard dev. etc.</span>
+<span class="k">let</span> <span class="i">seriesMeanLHS</span> <span class="o">=</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">Mean</span>()
+<span class="k">let</span> <span class="i">seriesMeanRHS</span> <span class="o">=</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">Mean</span>()
+
+<span class="c">// For the EWMA part of this calculation, we need to start at the first point in time where both series are avaliable</span>
+<span class="k">let</span> <span class="i">combinedStartDate</span> <span class="o">=</span> <span class="k">if</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="o">&gt;</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="k">then</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="k">else</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">FirstKey</span>()
+
+<span class="c">// we can now truncate the data series, and from now on will be working with series of equal length</span>
+<span class="k">let</span> <span class="i">ewmaReturnsLH</span> <span class="o">=</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">StartAt</span>(<span class="i">combinedStartDate</span>)
+<span class="k">let</span> <span class="i">ewmaReturnsRH</span> <span class="o">=</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">StartAt</span>(<span class="i">combinedStartDate</span>)
+
+<span class="c">// Use the Series mu (over all points) rather than the mean of the ewma period, to calculate the covariance</span>
+<span class="k">let</span> <span class="i">seriesLHMinusMu</span> <span class="o">=</span> <span class="i">ewmaReturnsLH</span> <span class="o">-</span> <span class="i">seriesMeanLHS</span>
+<span class="k">let</span> <span class="i">seriesRHMinusMu</span> <span class="o">=</span> <span class="i">ewmaReturnsRH</span> <span class="o">-</span> <span class="i">seriesMeanRHS</span>
+
+<span class="k">let</span> <span class="i">ewmaCovar</span> <span class="o">=</span> <span class="i">seriesLHMinusMu</span> <span class="o">*</span> <span class="i">seriesRHMinusMu</span>
+</code></pre></td>
+</tr>
+</table>
+<p>We can use Deedle's "Series.scanValues" to perform the EWMA weighted Covariance and series Variances.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">ewmaWeightedCovar</span> <span class="o">=</span> 
+    <span class="i">ewmaCovar</span>      
+    <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedCovar</span> <span class="i">thisCovar</span> <span class="k">-&gt;</span> <span class="i">uncCorrelLambda</span> <span class="o">*</span> <span class="i">lastweightedCovar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">uncCorrelLambda</span>) <span class="o">*</span> <span class="i">thisCovar</span> ) <span class="i">uncCovarInit</span>
+    
+<span class="k">let</span> <span class="i">ewmaVarLH</span> <span class="o">=</span> 
+    <span class="i">seriesLHMinusMu</span>      
+    <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedVar</span> <span class="i">thisVar</span> <span class="k">-&gt;</span> <span class="i">uncCorrelLambda</span> <span class="o">*</span> <span class="i">lastweightedVar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">uncCorrelLambda</span>) <span class="o">*</span> <span class="i">thisVar</span> <span class="o">**</span> <span class="n">2.0</span> ) <span class="i">uncVarInit</span>
+
+<span class="k">let</span> <span class="i">ewmaVarRH</span> <span class="o">=</span> 
+    <span class="i">seriesRHMinusMu</span>      
+    <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedVar</span> <span class="i">thisVar</span> <span class="k">-&gt;</span> <span class="i">uncCorrelLambda</span> <span class="o">*</span> <span class="i">lastweightedVar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">uncCorrelLambda</span>) <span class="o">*</span> <span class="i">thisVar</span> <span class="o">**</span> <span class="n">2.0</span> ) <span class="i">uncVarInit</span>
+</code></pre></td>
+</tr>
+</table>
+<p>We can now calculate the correlation based on weighted covariance and variance.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">ewmaCorrel</span> <span class="o">=</span> <span class="i">ewmaWeightedCovar</span> <span class="o">/</span> (<span class="i">ewmaVarLH</span> <span class="o">*</span> <span class="i">ewmaVarRH</span>) <span class="o">**</span> <span class="n">0.5</span>
+
+<span class="c">// finally, the contribution to the current unconditional correlation matrix for this pair is the ewmaCorrel value at the calibration date</span>
+<span class="k">let</span> <span class="i">finalUnconditionalCorrelation</span> <span class="o">=</span> <span class="i">ewmaCorrel</span><span class="o">.</span><span class="i">Get</span>(<span class="i">oldCalibrationDate</span>)
+</code></pre></td>
+</tr>
+</table>
+<table class="pre"><tr><td><pre><code>No value has been returned</code></pre></td></tr></table>
+<h1>Refactoring Into Pair functions</h1>
+<p>For mostly my own benifit, I want to see how we can use this code to calculate an entire correlation matrix.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+<span class="l">35: </span>
+<span class="l">36: </span>
+<span class="l">37: </span>
+<span class="l">38: </span>
+<span class="l">39: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">// Refactor into a function that returns correlation from a pair (correlation with itself is 1.0)</span>
+<span class="k">let</span> <span class="i">get10YCorrelFromPair</span> (<span class="i">calibrationDate</span><span class="o">:</span> <span class="i">DateTime</span>) <span class="i">assetLH</span> <span class="i">assetRH</span> <span class="o">=</span> 
+    
+    <span class="k">match</span> <span class="i">assetLH</span> <span class="o">=</span> <span class="i">assetRH</span> <span class="k">with</span>
+    | <span class="k">true</span> <span class="k">-&gt;</span> <span class="n">1.0</span>
+    | _ <span class="k">-&gt;</span> 
+            <span class="k">let</span> <span class="i">exampleReturnDataFrame</span> <span class="o">=</span> [ 
+                  <span class="i">assetLH</span> <span class="o">=&gt;</span> <span class="i">returnXSReturnSeries</span> <span class="i">assetLH</span>;  
+                  <span class="i">assetRH</span> <span class="o">=&gt;</span> <span class="i">returnXSReturnSeries</span> <span class="i">assetRH</span>] <span class="o">|&gt;</span> <span class="i">Frame</span><span class="o">.</span><span class="i">ofColumns</span>
+    
+            <span class="k">let</span> <span class="i">tenYearsAgo</span> <span class="o">=</span> <span class="i">calibrationDate</span><span class="o">.</span><span class="i">AddYears</span>(<span class="o">-</span><span class="n">10</span>)    
+            <span class="k">let</span> <span class="i">exampleHist10YReturns</span> <span class="o">=</span> <span class="i">exampleReturnDataFrame</span> <span class="o">|&gt;</span> <span class="i">Frame</span><span class="o">.</span><span class="i">filterRows</span> (<span class="k">fun</span> <span class="i">k</span> <span class="i">v</span> <span class="k">-&gt;</span> <span class="i">k</span> <span class="o">&gt;</span> <span class="i">tenYearsAgo</span> <span class="o">&amp;&amp;</span> <span class="i">k</span> <span class="o">&lt;=</span> <span class="i">calibrationDate</span>)
+
+            <span class="k">let</span> <span class="i">myX</span> <span class="o">=</span> <span class="i">exampleHist10YReturns</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">float</span><span class="o">&gt;</span>(<span class="i">assetLH</span>)<span class="o">.</span><span class="i">ValuesAll</span>
+            <span class="k">let</span> <span class="i">myY</span> <span class="o">=</span> <span class="i">exampleHist10YReturns</span><span class="o">.</span><span class="i">GetColumn</span><span class="o">&lt;</span><span class="i">float</span><span class="o">&gt;</span>(<span class="i">assetRH</span>)<span class="o">.</span><span class="i">ValuesAll</span>    
+
+            <span class="k">let</span> <span class="i">myCorrelXY</span> <span class="o">=</span> <span class="i">Statistics</span><span class="o">.</span><span class="i">Correlation</span><span class="o">.</span><span class="i">Pearson</span>(<span class="i">myX</span>, <span class="i">myY</span>)
+
+            <span class="i">myCorrelXY</span>
+
+<span class="c">// This should return the same values as above</span>
+<span class="i">get10YCorrelFromPair</span> <span class="i">calibrationDate</span> <span class="s">&quot;ASX_200_A_REIT&quot;</span> <span class="s">&quot;ASX_200_BANKS&quot;</span> 
+<span class="i">get10YCorrelFromPair</span> <span class="i">calibrationDate</span> <span class="s">&quot;ASX_200_A_REIT&quot;</span> <span class="s">&quot;China_25&quot;</span>  
+<span class="i">get10YCorrelFromPair</span> <span class="i">calibrationDate</span> <span class="s">&quot;China_25&quot;</span> <span class="s">&quot;China_25&quot;</span> 
+
+<span class="c">// We can now define a List of all assets we wish to include in the correlation matrix</span>
+<span class="k">let</span> <span class="i">assetList</span> <span class="o">=</span> [<span class="s">&quot;ASX_200_A_REIT&quot;</span>;<span class="s">&quot;ASX_200_BANKS&quot;</span>;<span class="s">&quot;China_25&quot;</span>] <span class="o">|&gt;</span> <span class="i">List</span><span class="o">.</span><span class="i">toSeq</span>
+
+<span class="c">// We want to yield all pairs of assets, and calculate the correlation between them</span>
+<span class="k">let</span> <span class="i">getCorrelMatrix</span> <span class="i">calibrationDate</span> <span class="i">funCorrelMethod</span> <span class="i">assetList</span> <span class="o">=</span> 
+
+    <span class="k">let</span> <span class="i">getThis10YCorrelFromPair</span> <span class="o">=</span> <span class="i">funCorrelMethod</span> <span class="i">calibrationDate</span> 
+
+    <span class="i">seq</span> { <span class="k">for</span> <span class="i">assetLH</span> <span class="k">in</span> <span class="i">assetList</span> <span class="k">do</span>
+                <span class="k">for</span> <span class="i">assetRH</span> <span class="k">in</span> <span class="i">assetList</span> <span class="k">do</span>
+                    <span class="k">yield</span> (<span class="i">assetLH</span>, <span class="i">assetRH</span>, <span class="i">getThis10YCorrelFromPair</span> <span class="i">assetLH</span> <span class="i">assetRH</span>)
+        }
+
+<span class="k">let</span> <span class="i">test10YMatrix</span> <span class="o">=</span> <span class="i">getCorrelMatrix</span> <span class="i">calibrationDate</span> <span class="i">get10YCorrelFromPair</span> <span class="i">assetList</span>
+</code></pre></td>
+</tr>
+</table>
+<p>We can repeat the same approach for the unconditional correlation</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+<span class="l">35: </span>
+<span class="l">36: </span>
+<span class="l">37: </span>
+<span class="l">38: </span>
+<span class="l">39: </span>
+<span class="l">40: </span>
+<span class="l">41: </span>
+<span class="l">42: </span>
+<span class="l">43: </span>
+<span class="l">44: </span>
+<span class="l">45: </span>
+<span class="l">46: </span>
+<span class="l">47: </span>
+<span class="l">48: </span>
+<span class="l">49: </span>
+<span class="l">50: </span>
+<span class="l">51: </span>
+<span class="l">52: </span>
+<span class="l">53: </span>
+<span class="l">54: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span class="i">getUncCorrelFromPair</span> <span class="i">lambda</span> <span class="i">uncVarInit</span> <span class="i">covarScale</span> (<span class="i">calibrationDate</span><span class="o">:</span> <span class="i">DateTime</span>) <span class="i">assetLH</span> <span class="i">assetRH</span> <span class="o">=</span>
+    
+    <span class="k">match</span> <span class="i">assetLH</span> <span class="o">=</span> <span class="i">assetRH</span> <span class="k">with</span>
+    | <span class="k">true</span> <span class="k">-&gt;</span> <span class="n">1.0</span>
+    | _ <span class="k">-&gt;</span> 
+        <span class="k">let</span> <span class="i">seriesLH</span> <span class="o">=</span>  (<span class="i">returnXSReturnSeries</span> <span class="i">assetLH</span>)<span class="o">.</span><span class="i">EndAt</span>(<span class="i">calibrationDate</span>)
+        <span class="k">let</span> <span class="i">seriesRH</span> <span class="o">=</span> (<span class="i">returnXSReturnSeries</span> <span class="i">assetRH</span>)<span class="o">.</span><span class="i">EndAt</span>(<span class="i">calibrationDate</span>)
+
+        <span class="c">// we will need to take the mean value for each series. This is over the entire lifespan of each series.   </span>
+        <span class="k">let</span> <span class="i">seriesMeanLHS</span> <span class="o">=</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">Mean</span>()
+        <span class="k">let</span> <span class="i">seriesMeanRHS</span> <span class="o">=</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">Mean</span>()
+
+        <span class="c">// For the EWMA part of this calculation, we need to start at the first point in time where both series are avaliable</span>
+        <span class="k">let</span> <span class="i">combinedStartDate</span> <span class="o">=</span> <span class="k">if</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="o">&gt;</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="k">then</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">FirstKey</span>() <span class="k">else</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">FirstKey</span>()
+
+        <span class="c">// we can now truncate the data series, and from now on will be working with series of equal length</span>
+        <span class="k">let</span> <span class="i">ewmaReturnsLH</span> <span class="o">=</span> <span class="i">seriesLH</span><span class="o">.</span><span class="i">StartAt</span>(<span class="i">combinedStartDate</span>)
+        <span class="k">let</span> <span class="i">ewmaReturnsRH</span> <span class="o">=</span> <span class="i">seriesRH</span><span class="o">.</span><span class="i">StartAt</span>(<span class="i">combinedStartDate</span>)
+
+        <span class="c">// Use the Series mu (over all points) rather than the mean of the ewma period, to calculate the covariance</span>
+        <span class="k">let</span> <span class="i">seriesLHMinusMu</span> <span class="o">=</span> <span class="i">ewmaReturnsLH</span> <span class="o">-</span> <span class="i">seriesMeanLHS</span>
+        <span class="k">let</span> <span class="i">seriesRHMinusMu</span> <span class="o">=</span> <span class="i">ewmaReturnsRH</span> <span class="o">-</span> <span class="i">seriesMeanRHS</span>
+        <span class="k">let</span> <span class="i">ewmaCovar</span> <span class="o">=</span> <span class="i">seriesLHMinusMu</span> <span class="o">*</span> <span class="i">seriesRHMinusMu</span>
+
+        <span class="c">// EWMA of series</span>
+        <span class="k">let</span> <span class="i">ewmaWeightedCovar</span> <span class="o">=</span> 
+            <span class="i">ewmaCovar</span>      
+            <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedCovar</span> <span class="i">thisCovar</span> <span class="k">-&gt;</span> <span class="i">lambda</span> <span class="o">*</span> <span class="i">lastweightedCovar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">lambda</span>) <span class="o">*</span> <span class="i">thisCovar</span> ) <span class="i">uncCovarInit</span>
+    
+        <span class="k">let</span> <span class="i">ewmaVarLH</span> <span class="o">=</span> 
+            <span class="i">seriesLHMinusMu</span>      
+            <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedVar</span> <span class="i">thisVar</span> <span class="k">-&gt;</span> <span class="i">lambda</span> <span class="o">*</span> <span class="i">lastweightedVar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">lambda</span>) <span class="o">*</span> <span class="i">thisVar</span> <span class="o">**</span> <span class="n">2.0</span> ) <span class="i">uncVarInit</span>
+
+        <span class="k">let</span> <span class="i">ewmaVarRH</span> <span class="o">=</span> 
+            <span class="i">seriesRHMinusMu</span>      
+            <span class="o">|&gt;</span> <span class="i">Series</span><span class="o">.</span><span class="i">scanValues</span> (<span class="k">fun</span> <span class="i">lastweightedVar</span> <span class="i">thisVar</span> <span class="k">-&gt;</span> <span class="i">lambda</span> <span class="o">*</span> <span class="i">lastweightedVar</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span class="i">lambda</span>) <span class="o">*</span> <span class="i">thisVar</span> <span class="o">**</span> <span class="n">2.0</span> ) <span class="i">uncVarInit</span>
+
+        <span class="k">let</span> <span class="i">ewmaCorrel</span> <span class="o">=</span> <span class="i">ewmaWeightedCovar</span> <span class="o">/</span> (<span class="i">ewmaVarLH</span> <span class="o">*</span> <span class="i">ewmaVarRH</span>) <span class="o">**</span> <span class="n">0.5</span>
+        <span class="c">// finally, the contribution to the current unconditional correlation matrix for this pair is the ewmaCorrel value at the calibration date</span>
+        <span class="i">ewmaCorrel</span><span class="o">.</span><span class="i">Get</span>(<span class="i">calibrationDate</span>)
+
+<span class="c">// We will (incorrectly) assume that the constants are the same for each pair of assets - in practice we will need more asset info to get the scaling factor out</span>
+<span class="k">let</span> <span class="i">defaultGetUncCorrelFromPair</span> <span class="o">=</span> <span class="i">getUncCorrelFromPair</span> <span class="n">0.99</span> <span class="n">0.005625</span> <span class="n">0.5</span>
+
+<span class="c">// And we can now return the Unc. correlation as above</span>
+<span class="i">defaultGetUncCorrelFromPair</span> <span class="i">oldCalibrationDate</span> <span class="s">&quot;E_AUD&quot;</span> <span class="s">&quot;E_HKD&quot;</span>
+
+<span class="c">// Finally, we can use this function to get a &quot;matrix&quot; of Unconditional correlations</span>
+<span class="k">let</span> <span class="i">testUncMatrix</span> <span class="o">=</span> <span class="i">getCorrelMatrix</span> <span class="i">calibrationDate</span> <span class="i">defaultGetUncCorrelFromPair</span> <span class="i">assetList</span>
+<span class="i">testUncMatrix</span> <span class="o">|&gt;</span> <span class="i">Seq</span><span class="o">.</span><span class="i">toList</span>
+
+<span class="c">// A few more test cases</span>
+<span class="i">get10YCorrelFromPair</span> <span class="i">oldCalibrationDate</span> <span class="s">&quot;E_GBP&quot;</span> <span class="s">&quot;E_USD&quot;</span> 
+<span class="i">defaultGetUncCorrelFromPair</span> <span class="i">oldCalibrationDate</span> <span class="s">&quot;E_GBP&quot;</span> <span class="s">&quot;E_USD&quot;</span>
+</code></pre></td>
+</tr>
+</table>
+
+
+          
+        </div>
+        <div class="span1"></div>
+      </div>
+      <hr style="margin-top:50px;"/>
+      <footer class="footer" style="text-align:center">
+        Brought to you by the <a href="http://fsharp.org/technical-groups/">F# Data Science working group</a> and <a href="http://twitter.com/fslaborg">@fslaborg</a>.<br />
+        Submit <a href="https://github.com/fslaborg/FsLab">feedback on GitHub</a> and help us improve FsLab!
+      </footer>
+    </div>
+  </body>
+</html>

@@ -143,6 +143,10 @@
       <SubType>
       </SubType>
     </None>
+    <None Include="RWTS Mutlivariate Calculations.fsx">
+      <SubType>
+      </SubType>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />

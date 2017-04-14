@@ -166,7 +166,7 @@ let unconditionalVol lambda initialVal (xsReturns: Series<DateTime,float>)=
         |> Series.scanValues (fun var ret -> lambda * var + (1.0 - lambda) * ret ** 2.0 ) initialVal
         |> Series.merge initPoint
     (**
-    Finally, we convert the variance to an annualised volatility. As we have quarterly returns, we multiply the quarterly vol (variance ^ 2) by the square root of the number of quarters per year (sqrt(12/4) = 2)
+    Finally, we convert the variance to an annualised volatility. As we have quarterly returns, we multiply the quarterly vol (variance ^ 2) by the square root of the number of quarters per year (sqrt(12/3) = 2)
     *)
     let volatility = 2.0 * variance ** 0.5
     volatility
@@ -177,6 +177,12 @@ let testVolatility = unconditionalVol setting_lambda setting_initialVal testXSRe
 (*** include-value: testVolatility ***)
 
 (**
+Again we can decide to push the data as a full time series, an update to an existing time series or just the latest value at the given calibration date.
+*)
+
+testVolatility.Get(DateTime(2016, 12, 31))
+
+(**
 BONUS: We can create a function that takes a tuple of ("AssetName", "Economy", lambda, initialval) and produces the volatility series
 *)
 
@@ -185,4 +191,5 @@ let getUnconditionalVol myTuple =
     let vol = unconditionalVol lambda init        
     getXSReturn (asset, econ) |> vol
 
-getUnconditionalVol ("E_AUD","E_AUD", 0.99, 0.007747769515651)
+let testgetUnconditionalVol = getUnconditionalVol ("E_AUD","E_AUD", 0.99, 0.007747769515651)
+testgetUnconditionalVol.Get(DateTime(2016, 12, 31))
