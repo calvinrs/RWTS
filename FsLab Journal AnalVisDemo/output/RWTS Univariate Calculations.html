@@ -15,6 +15,183 @@
     <link type="text/css" rel="stylesheet" href="styles/style.css" />
     <script src="styles/tips.js" type="text/javascript"></script>
     
+<style type="text/css">
+  .grid {
+    font-size:11pt;
+    font-family:sans-serif;
+    color:black;
+  }
+
+  .grid ::-webkit-scrollbar  {
+    width:6px;
+    height:6px;
+    background:transparent;
+  }
+
+  .grid ::-webkit-scrollbar-track {
+    background:transparent;
+  }
+
+  .grid ::-webkit-scrollbar-thumb {
+    border-radius:3px;
+    background-color:#c1c1c1;
+  }
+
+  .grid .faded {
+    color:#a0a0a0;
+  }
+
+  .grid tr {
+    background-color: #fdfdfd;
+  }
+
+  .grid tbody tr:nth-child(odd) {
+    background-color: #f4f4f4;
+  }
+
+  .grid thead tr {
+    background: #fdfdfd;
+  }
+
+  .grid table {
+    top:0px;
+    left:0px;
+    width:100%;
+    border-spacing: 0;
+    border-collapse: collapse;
+  }
+
+  .grid td, .grid th {
+    border-bottom:1px solid #a0a0a0;
+    padding:4px 10px 4px 10px;
+    min-width:50px;
+  }
+
+  .grid thead th {
+    border-bottom:3px solid #a0a0a0;
+  }
+
+  .grid th {
+    padding:4px 20px 4px 10px;
+    text-align:left;
+    font-weight:bold;
+  }
+
+  .live-grid {
+    position:relative;
+    overflow:hidden;
+  }
+
+  .live-grid .scroller {
+    overflow-y: scroll;
+    position:absolute;
+    width:100%;
+  }
+
+  .live-grid table {
+    position:absolute;
+  }
+</style>
+
+<script type="text/javascript">
+  function setupGrid(id, viewHeight, serviceUrl) {
+
+    // Create table with given column names & specified number of empty rows
+    function createRows(rowCount, columns) {
+      var head = $(id + " .head").empty();
+      $("<th />").html("#").appendTo(head);
+      for (var i = 0; i < columns.length; i++) {
+        $("<th />").html(columns[i]).appendTo(head);
+      }
+
+      var rows = [];
+      var body = $(id + " .body").empty();
+      for (var i = 0; i < rowCount; i++) {
+        var row = { columns: [] };
+        var tr = $("<tr />").appendTo(body);
+        var th = $("<th />").html("&nbsp;").appendTo(tr);
+        for (var j = 0; j < columns.length; j++) {
+          row.columns.push($("<td />").html("&nbsp;").appendTo(tr));
+        }
+        row.key = th;
+        row.tr = tr;
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    // Once we receive meta-data about the grid from the servier, 
+    // we create the grid, set height of scrollbar and register 
+    // scroll event to update the data on change
+    function initialize(meta) {
+      var rowHeight = $(id + " tbody tr").height() - 1; // Magic constant
+      var thHeight = $(id + " thead tr").height() + 2; // Magic constant 
+      var totalRows = meta.rows;
+      var viewCount = Math.ceil((viewHeight - thHeight) / rowHeight - 1);
+      var tableHeight = rowHeight * Math.min(viewCount, totalRows);
+
+      // Resize and report new size to FSI container (if defined)
+      $(id + " .spacer").css("min-height", (rowHeight * totalRows) + "px");
+      $(id).height(tableHeight + thHeight);
+      $(id + " .scroller").css("margin-top", thHeight + "px");
+      $(id + " .scroller").height(tableHeight);
+      if (window.fsiResizeContent) window.fsiResizeContent();
+
+      // Create table rows of the view
+      var rows = createRows(viewCount, meta.columns);
+      
+      // Update that gets triggered once the current one is done
+      var nextUpdate = null;
+
+      // Update the displayed data on scroll
+      function update(offset) {
+        nextUpdate = offset;
+        for (var i = 0; i < viewCount; i++) {
+          rows[i].tr.show();
+          rows[i].key.addClass("faded");
+          for (var j = 0; j < rows[i].columns.length; j++)
+            rows[i].columns[j].addClass("faded");
+        }
+
+        $.ajax({ url: serviceUrl + "/rows/" + offset + "?count=" + viewCount }).done(function (res) {
+          var data = JSON.parse(res);
+          for (var i = 0; i < viewCount; i++) {
+            var point = data[i];
+            if (point == null) rows[i].tr.hide();
+            else {
+              rows[i].tr.show();
+              rows[i].key.removeClass("faded").html(point.key);
+              for (var j = 0; j < rows[i].columns.length; j++)
+                rows[i].columns[j].removeClass("faded").html(point.columns[j]);
+            }
+          }
+          if (nextUpdate != null && nextUpdate != offset) {
+            console.log("Next: {0}", nextUpdate);
+            update(nextUpdate);
+          }
+          nextUpdate = null;
+        });
+      }
+
+      // Setup scroll handler & call to load first block of data
+      $(id + " .scroller").on("scroll", function () {
+        var offset = Math.ceil($(id + " .scroller").scrollTop() / rowHeight);
+        if (nextUpdate == null)
+          update(offset);
+        else
+          nextUpdate = offset;
+      });
+      update(0);
+    }
+
+    $.ajax({ url: serviceUrl + "/metadata" }).done(function (res) {
+      initialize(JSON.parse(res));
+    });
+  }
+</script>
+<script type="text/javascript">
+      $(function () { setupGrid("#fslab-grid-14048-1", 500, "http://localhost:9513/0"); });
+    </script>
     <script language="javascript" type="text/javascript">
       function init()
       {
@@ -207,7 +384,20 @@ Here, we will pull in data from our mock DB, like so.</p>
 </code></pre></td>
 </tr>
 </table>
-<table class="pre"><tr><td><pre><code>No value has been returned</code></pre></td></tr></table>
+<div class="fslab-html-output"><div class="grid live-grid" id="fslab-grid-14048-1">
+  <table>
+    <thead>
+      <tr class="head"><th>#</th><th>&nbsp;</th></tr>
+    </thead>
+    <tbody class="body">
+      <tr><th>&nbsp;</th><td>&nbsp;</td></tr>
+    </tbody>
+  </table>
+  <div class="scroller">
+    <div class="spacer"></div>
+  </div>
+</div>
+</div>
 <p>We can now decide what we want to do with this result. We can push the data as a full time series, or as an update to an existing time series.</p>
 <p>We can now use the time series of excess returns to calculate the RWTS stats that we need.</p>
 <p>BONUS: We can create a function that takes a tuple of ("AssetName", "Economy") and produces the XS return series</p>

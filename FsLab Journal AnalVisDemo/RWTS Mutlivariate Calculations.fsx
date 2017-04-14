@@ -66,8 +66,6 @@ let exampleReturnDataFrame = [
       "ASX_200_BANKS" => returnXSReturnSeries "ASX_200_BANKS" ;
       "China_25" => returnXSReturnSeries "China_25"] |> Frame.ofColumns
 
-(*** include-value: exampleReturnDataFrame ***)
-
 (**
 To define the 10Y period, we will need to define our calibraiton date.
 *)
@@ -105,7 +103,9 @@ let correlMatrix = matrix [ [1.0; myCorrelXY; myCorrelXZ]
 (**
 BONUS: We can test if a matrix is PSD like so:
 *)
-let oneLineIsPSD = correlMatrix.Evd().EigenValues.Real() |> Seq.min >= 0.000001
+let isPSD (matrix: Matrix<float>) = matrix.Evd().EigenValues.Real() |> Seq.min >= 0.000001
+isPSD correlMatrix
+
 (**
 We do not need to test this for our historic 10Y correlation matrix - its construction shoud ensure that this is true.
 *)
@@ -178,9 +178,8 @@ We can now calculate the correlation based on weighted covariance and variance.
 let ewmaCorrel = ewmaWeightedCovar / (ewmaVarLH * ewmaVarRH) ** 0.5
 
 // finally, the contribution to the current unconditional correlation matrix for this pair is the ewmaCorrel value at the calibration date
-let finalUnconditionalCorrelation = ewmaCorrel.Get(oldCalibrationDate)
-(*** include-value: finalUnconditionalCorrelation ***)
 
+let finalUnconditionalCorrelation = ewmaCorrel.Get(oldCalibrationDate)
 
 (**
 Refactoring Into Pair functions
@@ -215,17 +214,26 @@ get10YCorrelFromPair calibrationDate "ASX_200_A_REIT" "China_25"
 get10YCorrelFromPair calibrationDate "China_25" "China_25" 
 
 // We can now define a List of all assets we wish to include in the correlation matrix
-let assetList = ["ASX_200_A_REIT";"ASX_200_BANKS";"China_25"] |> List.toSeq
+let assetList = ["ASX_200_A_REIT";"ASX_200_BANKS";"China_25"] 
+
+// We will create a record type to hold all the info about a "matrix"
+type MatrixDescription = {assets: List<string>; matrix: Matrix<float>}
 
 // We want to yield all pairs of assets, and calculate the correlation between them
 let getCorrelMatrix calibrationDate funCorrelMethod assetList = 
 
     let getThis10YCorrelFromPair = funCorrelMethod calibrationDate 
+    let indexedAssetList = assetList |> List.zip [0..assetList.Length-1]
 
-    seq { for assetLH in assetList do
-                for assetRH in assetList do
-                    yield (assetLH, assetRH, getThis10YCorrelFromPair assetLH assetRH)
-        }
+    let flatMatrix = seq { for keyLH, assetLH in indexedAssetList do
+                            for keyRH, assetRH in indexedAssetList do
+                                yield (keyLH, keyRH, getThis10YCorrelFromPair assetLH assetRH)
+                         }
+    let denseMatrix = DenseMatrix.ofSeqi assetList.Length assetList.Length flatMatrix
+    let result = {assets = assetList; matrix = denseMatrix}
+    result
+                    //yield (assetLH, assetRH, getThis10YCorrelFromPair assetLH assetRH)
+      
 
 let test10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair assetList
 
@@ -282,8 +290,63 @@ defaultGetUncCorrelFromPair oldCalibrationDate "E_AUD" "E_HKD"
 
 // Finally, we can use this function to get a "matrix" of Unconditional correlations
 let testUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair assetList
-testUncMatrix |> Seq.toList
 
 // A few more test cases
 get10YCorrelFromPair oldCalibrationDate "E_GBP" "E_USD" 
 defaultGetUncCorrelFromPair oldCalibrationDate "E_GBP" "E_USD"
+
+(**
+Adding E_EUR and E_SKK
+================
+
+TO BE DETERMINED IF WE NEED TO DO THIS.
+
+*)
+
+(**
+Portfolio Calculations
+================
+
+Given the (final) correlation matrix, and the individual asset Unconditional Volatility numbers, we can move on to calculate the Beta, Market Price of Risk and Risk Premium.
+
+In this section, I will show a very small set of assets as an example case. The market numbers here are made up for example purposes.
+
+We must first define our global equity asset portfolio. This comprises of:
+
+*)
+
+// we have a matrix and a list of assets from above
+testUncMatrix.matrix
+testUncMatrix.assets
+
+// We will need to pull in the Unconditional vols for each asset. Here, we will make up some values for the example
+let unconditionalVols = [0.1875;0.165;0.2810]
+
+// The assumed return on the market portfolio
+let marketPfReturn = 0.04
+
+// The market capitalisation of each asset, at the current calibration date (this will be the latest value in the underlying time series)
+let marketCap = [1000.0;200.0;1500.0] |> List.zip assetList |> Map.ofList
+
+// The portfolio weight is the ratio of the asset's market cap to the global total, multiplied by the 1 or 0 setting value that determines if the asset is in the PF
+// We will assume that all of these assets are in the portfolio
+let totalMarketCap = marketCap |> Map.toList |> List.map (fun (k1,v1) -> v1) |> List.reduce (+)
+let portfolioWeight = marketCap |> Map.map (fun k v -> v / totalMarketCap )
+
+// To calculate the covariance, we need to use some matrix multiplication
+// So, we will convert the weights into a n * 1 matrix (or if you like, a vector)
+let pfWeightsMatrix = matrix [ assetList |> List.map (fun asset -> portfolioWeight.[asset]) ] |> Matrix.transpose
+
+let pfCovariance = (testUncMatrix.matrix * pfWeightsMatrix).Column(0)
+
+// the market portfolio variance is equal to wT * Covar * w
+let marketPfVariance = (pfWeightsMatrix.Transpose() * testUncMatrix.matrix * pfWeightsMatrix).[0,0]
+
+// The market Beta for each asset is equal to covar/porfolioVar
+let marketBetas = pfCovariance |> Seq.map (fun cov -> cov / marketPfVariance)
+
+// The risk premia can be calculated, these are equal to beta * pfReturn
+let riskPremia = marketBetas |> Seq.map (fun beta -> beta * marketPfReturn)
+
+// The market price of risk (or Z-score) is equal to the risk premia / unconditional vol
+riskPremia |> Seq.toList |> List.zip unconditionalVols |> List.map (fun (uncVol, riskPrem) -> riskPrem / uncVol)
