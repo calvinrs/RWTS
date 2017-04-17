@@ -301,6 +301,37 @@ let testUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair 
 get10YCorrelFromPair oldCalibrationDate "E_GBP" "E_USD" 
 defaultGetUncCorrelFromPair oldCalibrationDate "E_GBP" "E_USD"
 
+
+(**
+Let's try some more speculative stuff.  
+
+We can import the full portfolio list, and calculate the full correlation matrix.  
+
+We are ignoring the individual scaling parameters for now.  
+*)
+
+let fullAssetInfo = 
+    Frame.ReadCsv<string>(root + "AssetsList_Prod_EndDec2016.csv", indexCol="Economy")
+    |> Frame.sortRowsByKey
+
+let full10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+
+let fullUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+
+
+(**
+For the final output matrix (after E_EUR adjustment), we need to ensure that the matrix is PSD.  
+
+Can we call into our own "PSDCorrelationMatrix" function to make this so?
+*)
+
+isPSD fullUncMatrix.matrix
+fullUncMatrix.matrix.Evd().EigenValues.Real() |> Seq.toList
+
+//(full10YMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_10Y_Matrix.csv")
+//(fullUncMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_Unconditional_Matrix.csv")
+
+
 (**
 Adding E_EUR and E_SKK
 ================
@@ -336,7 +367,7 @@ let marketCap = [1000.0;200.0;1500.0] |> List.zip assetList |> Map.ofList
 
 // The portfolio weight is the ratio of the asset's market cap to the global total, multiplied by the 1 or 0 setting value that determines if the asset is in the PF
 // We will assume that all of these assets are in the portfolio
-let totalMarketCap = marketCap |> Map.toList |> List.map (fun (k1,v1) -> v1) |> List.reduce (+)
+let totalMarketCap = marketCap |> Map.toList |> List.map (fun (k1,v1) -> v1) |> List.sum
 let portfolioWeight = marketCap |> Map.map (fun k v -> v / totalMarketCap )
 
 // To calculate the covariance, we need to use some matrix multiplication
@@ -357,22 +388,32 @@ let riskPremia = marketBetas |> Seq.map (fun beta -> beta * marketPfReturn)
 // The market price of risk (or Z-score) is equal to the risk premia / unconditional vol
 riskPremia |> Seq.toList |> List.zip unconditionalVols |> List.map (fun (uncVol, riskPrem) -> riskPrem / uncVol)
 
-
 (**
-Let's try some more speculative stuff.  
+Real-life example
+-----------------
 
-We can import the full portfolio list, and calculate the full correlation matrix.
+We can import market caps for avaliable assets, and perform this analysis on the actual EndDec2016 data.
 *)
 
-let fullAssetInfo = 
-    Frame.ReadCsv<string>(root + "AssetsList_Prod_EndDec2016.csv", indexCol="Economy")
+let marketCapInfo = 
+    Frame.ReadCsv<string>(root + "MarketCaps_EndDec2016.csv", indexCol="Economy")
     |> Frame.sortRowsByKey
 
-fullAssetInfo.GetRow("SP100")
+// we can now extend the fullAssetInfo to include this - missing market caps should be set to zero
+let extendAssetInfoWithCaps info caps = 
+    let withCaps = Frame.join JoinKind.Left info caps |> Frame.fillMissingWith 0.0 
+    let marketCapTotal = withCaps?MarketCap * withCaps?In_Market_Portfolio |> Stats.sum
+    let weightInPf = withCaps?MarketCap / marketCapTotal
+    withCaps?weightInPf <- weightInPf
+    withCaps
 
-let full10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+let fullAssetInfoWithCaps = extendAssetInfoWithCaps fullAssetInfo marketCapInfo
 
-let fullUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+(**
+Adding the E_EUR asset
+================
+*)
 
-(full10YMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_10Y_Matrix.csv")
-(fullUncMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_Unconditional_Matrix.csv")
+// We can query the asset list to get all assets that are in the E_EUR synthetic asset
+fullAssetInfo |> Frame.filterRowValues(fun row -> row.GetAs<float>("In_Euro") = 1.0)
+

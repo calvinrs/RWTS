@@ -113,28 +113,10 @@
     <None Include="paket.dependencies" />
     <None Include="build.fsx" />
     <Compile Include="Runner.fs" />
-    <None Include="Tutorial.fsx" />
-    <None Include="Chapter1.fsx">
-      <SubType>
-      </SubType>
-    </None>
-    <None Include="DeedleIn10Mins.fsx">
-      <SubType>
-      </SubType>
-    </None>
-    <None Include="FsLab Experiment1.fsx">
-      <SubType>
-      </SubType>
-    </None>
-    <None Include="FsLab R Tutorial.fsx">
-      <SubType>
-      </SubType>
-    </None>
     <None Include="StatisticsDemo.fsx">
       <SubType>
       </SubType>
     </None>
-    <None Include="UnconditionalVolInRWTS.fsx" />
     <None Include="ExtrapolationExample.fsx">
       <SubType>
       </SubType>

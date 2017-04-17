@@ -74,6 +74,8 @@ let TRI = returnTRISeries "E_CNY"
 let Rates3M = return3MSeries "E_CNY"
 
 (**
+Note that in the RWTS database, "Economy" is denoted by an "E_XXX" asset. In our proper Time Series service, this will be an Economy code.  
+
 So, to calculate the Annualised Quarterly Excess Returns, we can do the following: 
 *)
 
@@ -193,3 +195,154 @@ let getUnconditionalVol myTuple =
 
 let testgetUnconditionalVol = getUnconditionalVol ("E_AUD","E_AUD", 0.99, 0.007747769515651)
 testgetUnconditionalVol.Get(DateTime(2016, 12, 31))
+
+(**
+Effective date
+================
+For most RWTS calculations, we update the latest values twice yearly in March and September. This analysis is done well in advance of the quarter end. 
+In these cases, we use data only up to the end of the last quarter - so up to End-December and End-June for the above update cycles.  
+
+To implement this, we want to define an "Effective Date" for the calibration relative to the "Calibration Date", and data will be truncated or sampled at the effective date.  
+
+We will implement this as a "delta" setting within the tool of "-3M" that we will apply to the calibration date.  
+
+Currently, we run RWTS each quarter. When we have broken this up into individual tools, we will only need to run these as required. So, the twice yearly updates will actually be run only every six months.  
+*)
+
+(**
+EWMA One Month Vol and Implied One Month Vol tools
+================
+We have already implemented tools to calculate the one-month volatility targets.  
+
+We use the "Implied One Month Vol" tool for assets where an implied volatility is published.  
+
+Where no data is avaliable, we calculate a 1m vol using the excess return series. For this tool, we should refactor it so that it pulls in the Time Series data for excess returns
+, like the Unconditional Volatility tool above.  
+
+Note that these calibration tools are run on a "latest to date" basis using all data up to the CalibrationDate. There is no delta required here. 
+*)
+
+(**
+SVJD Volatity term structure
+================
+We wish to run, on each calibration date, a tool to produce the volatility term structure for each asset.  
+
+The SVJD term structure is a function of
++ some SVJD parameters
++ The latest 1-month volatility (at the Calibration Date)
++ The latest avaliable Unconditional Volatility
+
+The unconditional vol will be from the last analysis, so will have a delta of -3M or -6M from the calibration date. Getting the "latest avaliable" value for the input should be sufficient here.  
+
+The "DiscreteSVJDCumVol" function should be avaliable in some part of the SVJD tool, or better still within the common maths library.  
+
+To complete this section, I have included a fresh definition of this function below.  
+*)
+
+// We can define the SVJD parameters
+type SVJDParameters = {reversionLevel: float; reversionSpeed: float; startVal: float; volOfVariance: float; Correlation: float; jumpIntensity: float; jumpMean: float; jumpVol: float }
+// and set these to their default values (these are updated yearly)
+let defaultSVJDParameters = {reversionLevel = 0.25; reversionSpeed = 4.10636051632234; startVal = 0.2; volOfVariance = 0.468645736687236; Correlation = -0.527442089116611; jumpIntensity = 0.0; jumpMean = 0.0; jumpVol = 0.0}
+
+// we will need to define the 1m and unconditional targets for the given asset
+let this1mVol = 0.14551565323787
+let thisUncVol = 0.282190830041867
+
+// We use these as the reversionLevel and volOfVariance SVJD parameters
+let thisSVJDParamters = { defaultSVJDParameters with reversionLevel = thisUncVol * thisUncVol; startVal = this1mVol * this1mVol;}
+
+let hestonVariance revLevel revSpeed currVol time = revLevel * (1.0 - Math.Exp(-revSpeed * time)) + currVol * Math.Exp(-revSpeed * time)
+hestonVariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal 0.0
+hestonVariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal (1.0/12.0)
+hestonVariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal (2.0/12.0)
+
+let hestonVarianceOfVariance revLevel revSpeed currVol volVar time = 
+    revLevel * volVar ** 2.0 * (1.0 - Math.Exp(-2.0 * revSpeed * time)) / (2.0 * revSpeed) + currVol * volVar ** 2.0 * (1.0 - revLevel / currVol) * Math.Exp(-revSpeed * time) * (1.0 - Math.Exp(-revSpeed * time)) / revSpeed
+
+hestonVarianceOfVariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal thisSVJDParamters.volOfVariance 0.0
+hestonVarianceOfVariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal thisSVJDParamters.volOfVariance (1.0/12.0)
+
+let jumpVariance intensity mean vol = intensity * (mean * mean + vol * vol)
+jumpVariance thisSVJDParamters.jumpMean thisSVJDParamters.jumpMean thisSVJDParamters.jumpVol
+
+let hestonCovariance revLevel revSpeed currVol volVar correl startTime endTime = 
+    correl * ((hestonVariance revLevel revSpeed currVol endTime) * (hestonVarianceOfVariance revLevel revSpeed currVol volVar startTime)) ** 0.5
+
+hestonCovariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal thisSVJDParamters.volOfVariance thisSVJDParamters.Correlation 0.0 (1.0/12.0)
+hestonCovariance thisSVJDParamters.reversionLevel thisSVJDParamters.reversionSpeed thisSVJDParamters.startVal thisSVJDParamters.volOfVariance thisSVJDParamters.Correlation (1.0/12.0) (2.0/12.0)
+
+let intervalVol parameters startTime endTime timescale = 
+   hestonVariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal startTime
+   + 0.25 * timescale * hestonVarianceOfVariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal parameters.volOfVariance startTime
+   + jumpVariance parameters.jumpMean parameters.jumpMean parameters.jumpVol
+   - hestonCovariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal parameters.volOfVariance parameters.Correlation startTime endTime
+    
+let this3mTotal = intervalVol thisSVJDParamters 0.0 (1.0/12.0) (1.0/12.0)
+                + intervalVol thisSVJDParamters (1.0/12.0) (2.0/12.0) (1.0/12.0)
+                + intervalVol thisSVJDParamters (2.0/12.0) (3.0/12.0) (1.0/12.0)
+
+(this3mTotal / 3.0) ** 0.5
+
+let maxTermInMonths = 360.0
+let timescaleSVJD = 1.0 / 12.0
+
+let termsSVJD = [0.0..maxTermInMonths] |> List.map (fun t -> t * timescaleSVJD)
+let intervalsSVJD = termsSVJD |> List.pairwise
+
+let intervalVols = intervalsSVJD |> List.map (fun (t1, t2) -> intervalVol thisSVJDParamters t1 t2 timescaleSVJD)
+
+
+let intervalTotalVol = (List.sum intervalVols / float intervalVols.Length) ** 0.5
+
+let subInterval = intervalVols |> List.take 3
+let subintervalTotalVol = (List.sum subInterval / float subInterval.Length) ** 0.5
+
+let calcIntervalTotalVol subInt = (List.sum subInt / float subInt.Length) ** 0.5
+let takeSubInterval months = intervalVols |> List.take months
+
+let subIntTotalVol months = takeSubInterval months |> calcIntervalTotalVol
+
+subIntTotalVol 3
+subIntTotalVol 12
+
+let returnMonths = [1;3;6;9;12;24;36;48;60;84;120;360]
+returnMonths |> List.map (subIntTotalVol)
+
+
+// refactor into a function
+let getSVJDInterpolatedVols parameters timescale monthlist = 
+    
+    let hestonVariance revLevel revSpeed currVol time = revLevel * (1.0 - Math.Exp(-revSpeed * time)) + currVol * Math.Exp(-revSpeed * time)
+
+    let hestonVarianceOfVariance revLevel revSpeed currVol volVar time = 
+        revLevel * volVar ** 2.0 * (1.0 - Math.Exp(-2.0 * revSpeed * time)) / (2.0 * revSpeed) + currVol * volVar ** 2.0 * (1.0 - revLevel / currVol) * Math.Exp(-revSpeed * time) * (1.0 - Math.Exp(-revSpeed * time)) / revSpeed
+    
+    let jumpVariance intensity mean vol = intensity * (mean * mean + vol * vol)
+
+    let hestonCovariance revLevel revSpeed currVol volVar correl startTime endTime = 
+        correl * ((hestonVariance revLevel revSpeed currVol endTime) * (hestonVarianceOfVariance revLevel revSpeed currVol volVar startTime)) ** 0.5
+
+    let intervalVol parameters startTime endTime timescale = 
+        hestonVariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal startTime
+        + 0.25 * timescale * hestonVarianceOfVariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal parameters.volOfVariance startTime
+        + jumpVariance parameters.jumpMean parameters.jumpMean parameters.jumpVol
+        - hestonCovariance parameters.reversionLevel parameters.reversionSpeed parameters.startVal parameters.volOfVariance parameters.Correlation startTime endTime
+
+    let sortedOutputMonths = monthlist |> List.sort
+    let maxTermInMonths = monthlist |> List.max |> float
+
+    let termsSVJD = [0.0..maxTermInMonths] |> List.map (fun t -> t * timescale)
+    
+    let intervalsSVJD = termsSVJD |> List.pairwise
+    let intervalVols = intervalsSVJD |> List.map (fun (t1, t2) -> intervalVol parameters t1 t2 timescaleSVJD)
+    
+    let calcIntervalTotalVol subInt = (List.sum subInt / float subInt.Length) ** 0.5
+    let takeSubInterval months = intervalVols |> List.take months
+    let subIntTotalVol months = takeSubInterval months |> calcIntervalTotalVol
+
+    monthlist |> List.map (fun m -> (m, subIntTotalVol m)) |> List.toSeq
+
+let ans = getSVJDInterpolatedVols thisSVJDParamters (1.0 / 12.0) returnMonths
+
+// try another
+getSVJDInterpolatedVols { defaultSVJDParameters with reversionLevel = 0.163868733808375 * 0.163868733808375; startVal = 0.0822093 * 0.0822093;} (1.0 / 12.0) returnMonths
