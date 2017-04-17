@@ -194,24 +194,30 @@ let get10YCorrelFromPair (calibrationDate: DateTime) assetLH assetRH =
     match assetLH = assetRH with
     | true -> 1.0
     | _ -> 
-            let exampleReturnDataFrame = [ 
-                  assetLH => returnXSReturnSeries assetLH;  
-                  assetRH => returnXSReturnSeries assetRH] |> Frame.ofColumns
-    
-            let tenYearsAgo = calibrationDate.AddYears(-10)    
-            let exampleHist10YReturns = exampleReturnDataFrame |> Frame.filterRows (fun k v -> k > tenYearsAgo && k <= calibrationDate)
+            // To ignore missing data, we need to truncate the trailing missing values
+            let seriesLH = returnXSReturnSeries assetLH
+            let seriesRH = returnXSReturnSeries assetRH
+            let combinedStartDate = if seriesLH.FirstKey() > seriesRH.FirstKey() then seriesLH.FirstKey() else seriesRH.FirstKey()
 
+            let exampleReturnDataFrame = Frame.ofColumns [ assetLH => seriesLH; assetRH => seriesRH ]  
+                
+            let tenYearsAgo = calibrationDate.AddYears(-10)  
+              
+            let exampleHist10YReturns = exampleReturnDataFrame |> Frame.filterRows (fun k v -> k >= combinedStartDate && k > tenYearsAgo && k <= calibrationDate)
+                         
             let myX = exampleHist10YReturns.GetColumn<float>(assetLH).ValuesAll
-            let myY = exampleHist10YReturns.GetColumn<float>(assetRH).ValuesAll    
+            let myY = exampleHist10YReturns.GetColumn<float>(assetRH).ValuesAll
 
             let myCorrelXY = Statistics.Correlation.Pearson(myX, myY)
 
             myCorrelXY
 
 // This should return the same values as above
-get10YCorrelFromPair calibrationDate "ASX_200_A_REIT" "ASX_200_BANKS" 
-get10YCorrelFromPair calibrationDate "ASX_200_A_REIT" "China_25"  
-get10YCorrelFromPair calibrationDate "China_25" "China_25" 
+get10YCorrelFromPair calibrationDate "ASX_200_A_REIT" "ASX_200_BANKS" // = 0.6329625501
+get10YCorrelFromPair calibrationDate "ASX_200_A_REIT" "China_25"  // = 0.4239930683
+get10YCorrelFromPair calibrationDate "China_25" "China_25" // = 1.0
+// pair with a missing value 
+get10YCorrelFromPair calibrationDate "EURSTOXX50" "EUR_BankLoans" // 0.5962678681
 
 // We can now define a List of all assets we wish to include in the correlation matrix
 let assetList = ["ASX_200_A_REIT";"ASX_200_BANKS";"China_25"] 
@@ -350,3 +356,23 @@ let riskPremia = marketBetas |> Seq.map (fun beta -> beta * marketPfReturn)
 
 // The market price of risk (or Z-score) is equal to the risk premia / unconditional vol
 riskPremia |> Seq.toList |> List.zip unconditionalVols |> List.map (fun (uncVol, riskPrem) -> riskPrem / uncVol)
+
+
+(**
+Let's try some more speculative stuff.  
+
+We can import the full portfolio list, and calculate the full correlation matrix.
+*)
+
+let fullAssetInfo = 
+    Frame.ReadCsv<string>(root + "AssetsList_Prod_EndDec2016.csv", indexCol="Economy")
+    |> Frame.sortRowsByKey
+
+fullAssetInfo.GetRow("SP100")
+
+let full10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+
+let fullUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
+
+(full10YMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_10Y_Matrix.csv")
+(fullUncMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_Unconditional_Matrix.csv")
