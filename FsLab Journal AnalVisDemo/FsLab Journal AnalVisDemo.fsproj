@@ -113,19 +113,15 @@
     <None Include="paket.dependencies" />
     <None Include="build.fsx" />
     <Compile Include="Runner.fs" />
-    <None Include="StatisticsDemo.fsx">
-      <SubType>
-      </SubType>
-    </None>
-    <None Include="ExtrapolationExample.fsx">
-      <SubType>
-      </SubType>
-    </None>
     <None Include="RWTS Univariate Calculations.fsx">
       <SubType>
       </SubType>
     </None>
     <None Include="RWTS Mutlivariate Calculations.fsx">
+      <SubType>
+      </SubType>
+    </None>
+    <None Include="ExtrapolationExample.fsx">
       <SubType>
       </SubType>
     </None>

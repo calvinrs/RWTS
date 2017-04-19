@@ -19,7 +19,7 @@ System - for DateTime
 
 Deedle - to arrange time series data into Key -> Value "Frames"  
 
-Mathnet.Numerics - for off the shelf statistical functions  
+Mathnet.Numerics - for off the shelf statistical functions, and for Matrix algebra
 
 *)
 open System
@@ -107,7 +107,7 @@ let isPSD (matrix: Matrix<float>) = matrix.Evd().EigenValues.Real() |> Seq.min >
 isPSD correlMatrix
 
 (**
-We do not need to test this for our historic 10Y correlation matrix - its construction shoud ensure that this is true.
+We do not need to test this for our historic 10Y correlation matrix.
 *)
 
 (**
@@ -242,6 +242,7 @@ let getCorrelMatrix calibrationDate funCorrelMethod assetList =
       
 
 let test10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair assetList
+(*** include-value: test10YMatrix***)
 
 (**
 We can repeat the same approach for the unconditional correlation
@@ -296,6 +297,7 @@ defaultGetUncCorrelFromPair oldCalibrationDate "E_AUD" "E_HKD"
 
 // Finally, we can use this function to get a "matrix" of Unconditional correlations
 let testUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair assetList
+(*** include-value: testUncMatrix***)
 
 // A few more test cases
 get10YCorrelFromPair oldCalibrationDate "E_GBP" "E_USD" 
@@ -313,11 +315,14 @@ We are ignoring the individual scaling parameters for now.
 let fullAssetInfo = 
     Frame.ReadCsv<string>(root + "AssetsList_Prod_EndDec2016.csv", indexCol="Economy")
     |> Frame.sortRowsByKey
+(*** include-value: fullAssetInfo***)
 
+(**
+We can calculate the correlation matrices for all required assets in the input portfolio.
+*)
 let full10YMatrix = getCorrelMatrix calibrationDate get10YCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
 
 let fullUncMatrix = getCorrelMatrix calibrationDate defaultGetUncCorrelFromPair (fullAssetInfo.RowKeys |> Seq.toList)
-
 
 (**
 For the final output matrix (after E_EUR adjustment), we need to ensure that the matrix is PSD.  
@@ -482,6 +487,7 @@ We can now calculate:
 // And we can now use the full matrix and full vol vector to calculate the correlation matrix
 // This will also give us the volatilty vector, so we have a full vector that matches the full covar matrix
 let (testFullCorr, testFullVolVectorWithEUR) = cov2corVol testFullCovarWithEUR
+(*** include-value: testFullCorr***)
 
 // finally, we can pick up the E_EUR volatilty as the first entry in the new volatility vector
 let testEURUncVol = testFullVolVectorWithEUR.[0]
@@ -510,10 +516,70 @@ We can use eigen decomposition to pull apart and rebuild a correlation matrix li
 
 *)
 
-let testEigenDecomp = testFullCovarWithEUR.Evd()
-let testEigenValues = testEigenDecomp.EigenValues.Real()
-let testEigenVectors = testEigenDecomp.EigenVectors
+let decomposeMatrix (correlMatrix: Matrix<float>) = 
+    let eigenDecomp = correlMatrix.Evd()
+    let eigenValues = eigenDecomp.EigenValues.Real()
+    let eigenVectors = eigenDecomp.EigenVectors
+    let isPSD = eigenValues |> Seq.min >= 0.000001
+    (eigenValues, eigenVectors, isPSD)
 
-let reconstructedTestMatrix = testEigenVectors * DenseMatrix.ofDiag(testEigenValues)* testEigenVectors.Inverse()
+let (testEigenValues,testEigenVectors, testIsPSD) = decomposeMatrix testFullCorr
 
-isPSD testFullCovarWithEUR
+let reconstructMatrixFromEigenDecomposition (eigenVectors: Matrix<float>) eigenValues = eigenVectors * DenseMatrix.ofDiag(eigenValues) * eigenVectors.Inverse()
+
+let reconstructedTestMatrix = reconstructMatrixFromEigenDecomposition testEigenVectors testEigenValues
+
+// if the matrix is not PSD, we can make it so by
+
+// set the newEigenValue array
+
+// Find the smallest positive eigenValue
+let nThSmallestPosEigenValue eigenValues n = eigenValues |> Vector.toList |> Seq.filter (fun ev -> ev > 0.000001) |> Seq.sort |> Seq.item (n - 1)
+let replaceNegativeEigenValues eigenValues replacement = eigenValues |> Vector.map (fun ev -> if ev <= 0.000001 then replacement else ev )
+
+let latestSmallestPositiveEigenValue = nThSmallestPosEigenValue testEigenValues 1
+
+let newPossibleEigenValues = replaceNegativeEigenValues testEigenValues latestSmallestPositiveEigenValue
+
+let newPossibleCorrelMatrix = reconstructMatrixFromEigenDecomposition testEigenVectors newPossibleEigenValues
+
+// We need to set the diagonal back to one
+let newDiagonalOfOnes = testEigenValues |> Vector.map (fun e -> 1.0)
+
+newPossibleCorrelMatrix.SetDiagonal(newDiagonalOfOnes)
+
+// We can now check if the adjusted matrix is PSD
+let (newEigenValues,newEigenVectors, newIsPSD) = decomposeMatrix newPossibleCorrelMatrix
+
+// if not PSD, then we need to recursively set to the next smallest EigenValue...
+
+// a function to do this can be defined like so...
+let ensureMatrixIsPSD matrix = 
+
+    let nThSmallestPosEigenValue eigenValues n = eigenValues |> Vector.toList |> Seq.filter (fun ev -> ev > 0.000001) |> Seq.sort |> Seq.item (n - 1)
+    let replaceNegativeEigenValues eigenValues replacement = eigenValues |> Vector.map (fun ev -> if ev <= 0.000001 then replacement else ev )    
+
+    let (originalEigenValues,originalEigenVectors, originalIsPSD) = decomposeMatrix matrix
+
+    match originalIsPSD with
+    | true -> matrix
+    | _ ->
+        let startN = 1
+        let maxN = originalEigenValues.Count
+        let newDiagonalOfOnes = originalEigenValues |> Vector.map (fun e -> 1.0)
+        let rec setEVUntilPSD thisN = 
+            let latestSmallestPositiveEigenValue = nThSmallestPosEigenValue originalEigenValues thisN
+            let newPossibleEigenValues = replaceNegativeEigenValues originalEigenValues latestSmallestPositiveEigenValue
+            let newPossibleCorrelMatrix = reconstructMatrixFromEigenDecomposition originalEigenVectors newPossibleEigenValues
+            newPossibleCorrelMatrix.SetDiagonal(newDiagonalOfOnes)
+            let (newEigenValues,newEigenVectors, newIsPSD) = decomposeMatrix newPossibleCorrelMatrix
+            if newIsPSD || thisN = maxN then newPossibleCorrelMatrix else setEVUntilPSD (thisN + 1)
+        setEVUntilPSD 1  
+
+let aPSDMatrixThatsAlreadyPSD = ensureMatrixIsPSD newPossibleCorrelMatrix
+let aPSDMatrixThatsPSDAfterOneIteration = ensureMatrixIsPSD testFullCorr
+
+// The 2009 algoritm further reduces the minimum eigenvalue by a small amount until the result is back over the PSD threshold
+let (latestEigenValues,latestEigenVectors, latestIsPSD) = decomposeMatrix newPossibleCorrelMatrix
+
+// I'm going to stop there, as I'm not convinced that this is the same algorithm we use in the DB RWTS any more (the diagonals are not = 1.0, so something is up...)

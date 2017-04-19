@@ -121,7 +121,6 @@ let returnXSReturnSeries = ReturnSeries XSReturnsfromCSV
 let joinOurCalcsToDBCalcs = [ 
       "Ours" => testXSReturn;  
       "Db" => returnXSReturnSeries "E_CNY" ] |> Frame.ofColumns
-
 (*** include-value: joinOurCalcsToDBCalcs ***)
 
 (**
