@@ -331,15 +331,6 @@ fullUncMatrix.matrix.Evd().EigenValues.Real() |> Seq.toList
 //(full10YMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_10Y_Matrix.csv")
 //(fullUncMatrix.matrix |> Matrix.toFrame).SaveCsv(root + "Output_Unconditional_Matrix.csv")
 
-
-(**
-Adding E_EUR and E_SKK
-================
-
-TO BE DETERMINED IF WE NEED TO DO THIS.
-
-*)
-
 (**
 Portfolio Calculations
 ================
@@ -386,7 +377,7 @@ let marketBetas = pfCovariance |> Seq.map (fun cov -> cov / marketPfVariance)
 let riskPremia = marketBetas |> Seq.map (fun beta -> beta * marketPfReturn)
 
 // The market price of risk (or Z-score) is equal to the risk premia / unconditional vol
-riskPremia |> Seq.toList |> List.zip unconditionalVols |> List.map (fun (uncVol, riskPrem) -> riskPrem / uncVol)
+let zScores = riskPremia |> Seq.toList |> List.zip unconditionalVols |> List.map (fun (uncVol, riskPrem) -> riskPrem / uncVol)
 
 (**
 Real-life example
@@ -412,8 +403,117 @@ let fullAssetInfoWithCaps = extendAssetInfoWithCaps fullAssetInfo marketCapInfo
 (**
 Adding the E_EUR asset
 ================
+
+In order to calculate the E_EUR asset, we will need to be able to switch between a correlation matrix and volatility vector to a covariance matrix and back again.  
+
+We can use the Matrix type in the MathNet.Numerics.LinearAlgebra package to produce the helper functions that we need.  
 *)
 
-// We can query the asset list to get all assets that are in the E_EUR synthetic asset
+// We can define some simple example correlation, covariance and volatility(sigma) parameters
+let correl = matrix [[1.0;-0.5]
+                     [-0.5;1.0]]
+
+let sigma = vector [0.5;2.0]
+
+let cov = matrix  [[0.25;-0.5]
+                   [-0.5;4.0]]
+
+// We can switch to covariance given the correlation matrix and volatility vector
+// Where covar(i,j) = corr(i,j) * var(i) * var(j)
+let cor2cov (cor: Matrix<float>) (vol: Vector<float>) = 
+    let varmatrix = vol.ToColumnMatrix() * vol.ToRowMatrix()
+    varmatrix .* cor
+
+let calcCov = cor2cov correl sigma
+calcCov = cov
+
+// And we can switch back again from the covariance matrix to produce the correlation and vol vector as a tuple (matrix * vector)
+// Where vol(i) = var(i) ** 2 (take the diagonal of the covar matrix  to get variances)
+// and corr(i,j) = covar(i,j) / vol(i)
+let cov2corVol (cov: Matrix<float>) = 
+    let vol = cov.Diagonal() |> Vector.map (fun x -> x ** 0.5)
+    let varmatrix = vol.ToColumnMatrix() * vol.ToRowMatrix()
+    let calcCorr = cov ./ varmatrix
+    (calcCorr, vol)
+
+let (calcCor, calcVol) = cov2corVol calcCov
+
+calcVol = sigma
+calcCor = correl
+
+// To show this in action, we can use the small test matrix from above, and the corresponding vol vector
+let testCorrMatrix = testUncMatrix.matrix
+let testVolVector = unconditionalVols |> List.toSeq |> Vector.Build.DenseOfEnumerable
+
+// We can now convert these to a covariance matrix
+let innerTestCovar = cor2cov testUncMatrix.matrix testVolVector
+
+(**
+To add the E_EUR asset to this matrix, we need to know the market cap adjusted weight of each asset in the synthetic E_EUR asset.  
+
+We can declare this for our test list of assets as:
+*)
+
+// An example weighting scheme for the definition of the E_EUR asset
+let testEURWeights = Vector.Build.DenseOfEnumerable([0.5;0.25;0.25] |> List.toSeq )
+
+// The E_EUR Vs. Other asset covariance can then be calculated 
+// EUR_Covar(i) = weightInEUR * covar(i)
+let testEURVsAssetCovar = testEURWeights.ToRowMatrix() * innerTestCovar
+
+// Given this, we can use the same function to calculate the E_EUR Vs E_EUR covariance (or variance, as it is with itself)
+let testEURVariance = testEURWeights.ToRowMatrix() * testEURVsAssetCovar.Transpose()
+
+(**
+We can now assemble the full covar matrix with E_EUR by joining the pieces together
+*)
+
+let testInnerCovarWithEURTopRow = testEURVsAssetCovar.Stack(innerTestCovar)
+let testFullTransposedEURVsAssetCovar = testEURVariance.Stack(testEURVsAssetCovar.Transpose())
+let testFullCovarWithEUR = testFullTransposedEURVsAssetCovar.Append(testInnerCovarWithEURTopRow)
+(*** include-value: testFullCovarWithEUR***)
+
+(**
+We can now calculate:
++ The E_EUR asset unconditional volatility, and append this to the volatility vector
++ The full correlation matrix, including E_EUR
+*)
+
+// And we can now use the full matrix and full vol vector to calculate the correlation matrix
+// This will also give us the volatilty vector, so we have a full vector that matches the full covar matrix
+let (testFullCorr, testFullVolVectorWithEUR) = cov2corVol testFullCovarWithEUR
+
+// finally, we can pick up the E_EUR volatilty as the first entry in the new volatility vector
+let testEURUncVol = testFullVolVectorWithEUR.[0]
+
+(**
+The E_EUR vol will need to be pushed to the database as the "Unconditional Vol" for this asset.
+*)
+
+
+(*** hide ***)
 fullAssetInfo |> Frame.filterRowValues(fun row -> row.GetAs<float>("In_Euro") = 1.0)
 
+(**
+Adding E_SKK
+================
+
+TO BE DETERMINED IF WE NEED TO DO THIS.
+
+*)
+
+(**
+Full Matrix PSD adjustment.
+================
+
+We can use eigen decomposition to pull apart and rebuild a correlation matrix like so:  
+
+*)
+
+let testEigenDecomp = testFullCovarWithEUR.Evd()
+let testEigenValues = testEigenDecomp.EigenValues.Real()
+let testEigenVectors = testEigenDecomp.EigenVectors
+
+let reconstructedTestMatrix = testEigenVectors * DenseMatrix.ofDiag(testEigenValues)* testEigenVectors.Inverse()
+
+isPSD testFullCovarWithEUR
