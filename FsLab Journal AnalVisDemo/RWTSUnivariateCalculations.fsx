@@ -1,6 +1,7 @@
 (*** hide ***)
 #load "packages/FsLab/FsLab.fsx"
 (**
+<a name="Top"></a>
 RWTS - Univariate Statistics
 ================
 
@@ -26,6 +27,9 @@ open Deedle
 let root = __SOURCE_DIRECTORY__ + "/data/TSExampleData/"
 
 (**
+<a name="TSData"></a>
+Time Series Data
+==================
 We can mock up a "database" of time series data by pulling in a full set of data, up to EndDec2016
 *)
 
@@ -63,6 +67,7 @@ We will start by loading our required data
 *)
 
 (**
+<a name="XSReturns"></a>
 Annualised Quarterly Excess Returns
 ================
 We will start by loading our required data for TRI and 3M rates.
@@ -140,6 +145,7 @@ let getXSReturn myTuple =
 getXSReturn ("E_AUD","E_AUD")
 
 (**
+<a name="UncVol"></a>
 Unconditional Volatility
 ================
 
@@ -168,9 +174,8 @@ let unconditionalVol lambda initialVal (xsReturns: Series<DateTime,float>)=
         |> Series.filter (fun k v -> k.Equals(initDate) = false)  
         |> Series.scanValues (fun var ret -> lambda * var + (1.0 - lambda) * ret ** 2.0 ) initialVal
         |> Series.merge initPoint
-    (**
-    Finally, we convert the variance to an annualised volatility. As we have quarterly returns, we multiply the quarterly vol (variance ^ 2) by the square root of the number of quarters per year (sqrt(12/3) = 2)
-    *)
+    
+    //Finally, we convert the variance to an annualised volatility. As we have quarterly returns, we multiply the quarterly vol (variance ^ 2) by the square root of the number of quarters per year (sqrt(12/3) = 2)    
     let volatility = 2.0 * variance ** 0.5
     volatility
 
@@ -182,8 +187,7 @@ Again we can decide to push the data as a full time series, an update to an exis
 *)
 
 let finalOutputUncVol  = testVolatility.Get(DateTime(2016, 12, 31))
-
-(*** include-value:finalOutputUncVol ***)
+(*** include-value:finalOutputUncVol***)
 
 (**
 BONUS: We can create a function that takes a tuple of ("AssetName", "Economy", lambda, initialval) and produces the volatility series
@@ -197,20 +201,9 @@ let getUnconditionalVol myTuple =
 let testgetUnconditionalVol = getUnconditionalVol ("E_AUD","E_AUD", 0.99, 0.007747769515651)
 testgetUnconditionalVol.Get(DateTime(2016, 12, 31))
 
-(**
-Effective date
-================
-For most RWTS calculations, we update the latest values twice yearly in March and September. This analysis is done well in advance of the quarter end. 
-In these cases, we use data only up to the end of the last quarter - so up to End-December and End-June for the above update cycles.  
-
-To implement this, we want to define an "Effective Date" for the calibration relative to the "Calibration Date", and data will be truncated or sampled at the effective date.  
-
-We will implement this as a "delta" setting within the tool of "-3M" that we will apply to the calibration date.  
-
-Currently, we run RWTS each quarter. When we have broken this up into individual tools, we will only need to run these as required. So, the twice yearly updates will actually be run only every six months.  
-*)
 
 (**
+<a name="OneMonthVol"></a>
 EWMA One Month Vol and Implied One Month Vol tools
 ================
 We have already implemented tools to calculate the one-month volatility targets.  
@@ -224,6 +217,7 @@ Note that these calibration tools are run on a "latest to date" basis using all 
 *)
 
 (**
+<a name="TermStructure"></a>
 SVJD Volatity term structure
 ================
 We wish to run, on each calibration date, a tool to produce the volatility term structure for each asset.  
@@ -297,3 +291,17 @@ let extrapolatedSVJDTermStructure = getSVJDInterpolatedVols thisSVJDParamters (1
 
 (*** hide ***)
 getSVJDInterpolatedVols { defaultSVJDParameters with reversionLevel = 0.163868733808375 * 0.163868733808375; startVal = 0.0822093 * 0.0822093;} (1.0 / 12.0) returnMonths
+
+(**
+<a name="EffectiveDate"></a>
+Effective date
+================
+For most RWTS calculations, we update the latest values twice yearly in March and September. This analysis is done well in advance of the quarter end. 
+In these cases, we use data only up to the end of the last quarter - so up to End-December and End-June for the above update cycles.  
+
+To implement this, we want to define an "Effective Date" for the calibration relative to the "Calibration Date", and data will be truncated or sampled at the effective date.  
+
+We will implement this as a "delta" setting within the tool of "-3M" that we will apply to the calibration date.  
+
+Currently, we run RWTS each quarter. When we have broken this up into individual tools, we will only need to run these as required. So, the twice yearly updates will actually be run only every six months.  
+*)

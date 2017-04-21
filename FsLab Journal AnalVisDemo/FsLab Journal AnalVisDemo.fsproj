@@ -113,11 +113,11 @@
     <None Include="paket.dependencies" />
     <None Include="build.fsx" />
     <Compile Include="Runner.fs" />
-    <None Include="RWTS Univariate Calculations.fsx">
+    <None Include="RWTSUnivariateCalculations.fsx">
       <SubType>
       </SubType>
     </None>
-    <None Include="RWTS Mutlivariate Calculations.fsx">
+    <None Include="RWTSMultivariateCalculations.fsx">
       <SubType>
       </SubType>
     </None>
