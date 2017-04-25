@@ -64,7 +64,19 @@ Historic 10Y Correlations
 We can introduce how we will approach multivariate statistics by taking the simplest example.  
 We wish to calculate "Historic 10Y Correlations", which are simply the correlation between asset returns over the last 10 years.  
 
+
+We begin with the avaliable time series of quarterly returns for each asset X and Y.  
+
+$ \vec{S^{X}} =  \begin{bmatrix}v^X_{t_0} \\ v^X_{t_1}  \\ \vdots \\ v^X_{t_{max}} \end{bmatrix} $
+$ \vec{S^{Y}} =  \begin{bmatrix}v^Y_{t_0} \\ v^Y_{t_1}  \\ \vdots \\ v^Y_{t_{max}} \end{bmatrix} $
+
+ 
+Specifically, the correlation here is the "Pearson product moment coefficient". We can take this function from a standard library.  
+
+$ \rho _{X,Y}=\mathrm {corr} (\vec{S^{X}},\vec{S^{Y}}) $
+
 So to calculate correlation between a number of assets, we will need to pull in all avaliable returns for our assets.
+
 *)
 
 let exampleReturnDataFrame = [ 
@@ -73,7 +85,24 @@ let exampleReturnDataFrame = [
       "China_25" => returnXSReturnSeries "China_25"] |> Frame.ofColumns
 
 (**
-To define the 10Y period, we will need to define our calibraiton date.
+
+To define the 10Y period, we will need to define our calibration date.  
+
+We can set:  
+
+$ t^{XY}_T = CalibrationDate $
+
+Our start date will be T-10Y or the beginning of the latest starting series, if this does not go back as far as 10Y.  
+
+$ t^{XY}_0 =  \max ((t^{XY}_T-10Y),t^{X}_0,t^{Y}_0) $
+
+In practice, all of our data series will span back 10Y.  
+
+We can now slice both time series over the same period:  
+
+$ \vec{S^{X^{'}}} =  \begin{bmatrix}v^X_{t^{XY}_0}  \\ \vdots \\ v^X_{t^{XY}_T} \end{bmatrix} $
+$ \vec{S^{Y^{'}}} =  \begin{bmatrix}v^Y_{t^{XY}_0}  \\ \vdots \\ v^Y_{t^{XY}_T} \end{bmatrix} $
+
 *)
 
 let calibrationDate = DateTime(2016, 12, 31)
@@ -125,17 +154,27 @@ Like the historic correlations, we need to work with pairs of time series.
 For this calculation however, we need to be careful about the time period we are working over, conditional on the lifespan of both series in the pair.  
 
 For this example, we can go back in time to the pre-DB RWTS sheet, so we can compare results. The TR series are slightly different, but we should get a similar result.  
+
+For an EWMA correlation, we will need to refer to the full definition for the Pearson correlation.   
+
+$ \rho _{X,Y}=\mathrm {corr} (X,Y)={\mathrm {cov} (X,Y) \over \sigma _{X}\sigma _{Y}}={E[(X-\mu _{X})(Y-\mu _{Y})] \over \sigma _{X}\sigma _{Y}} $
+
+For the unconditional correlation, we will take EWMA versions of covariance and variance, and plug these into the formula above.  
+
+Like for the 10Y correlations, we begin with the avaliable time series of quarterly returns for each asset X and Y.  
+
+$ \vec{S^{X}} =  \begin{bmatrix}v^X_{t_0} \\ v^X_{t_1}  \\ \vdots \\ v^X_{t_{max}} \end{bmatrix} $
+$ \vec{S^{Y}} =  \begin{bmatrix}v^Y_{t_0} \\ v^Y_{t_1}  \\ \vdots \\ v^Y_{t_{max}} \end{bmatrix} $
+
+The shared maximum date will be at our calibration date:  
+
+$ t^{XY}_T = CalibrationDate $
+
+Note that we take the mean values used in the correlation calculations at this stage, NOT over the shared period we will use later in the EWMA calculation:  
+
+$ \mu _{X} = mean(\begin{bmatrix}v^X_{t^{X}_0}  \\ \vdots \\ v^X_{t^{XY}_T} \end{bmatrix}) $
+
 *)
-
-// for the EWMA part of this, we will need to determine the initialisation value and the lambda value.
-
-// lambda can be expressed as a value, or in terms of the Mean age of the data (25y) and the observations per year (4 for quarterly data) 
-let uncCorrelLambda = (1.0 - (1.0/4.0) / 25.0) //0.99
-
-// the initialisation value is 0.005625, but will be scaled based on the asset type (equity or bond) and if the underlying economy matches for the assets
-// in our example case, we will investigate equity assets that have different underlying economies, which gives us a scaling factor of 0.5
-let uncVarInit = 0.005625
-let uncCovarInit = uncVarInit * 0.5
 
 // Set the calibration date
 let oldCalibrationDate = DateTime(2009, 12, 31)
@@ -149,6 +188,18 @@ let seriesRH = (returnXSReturnSeries "E_HKD").EndAt(oldCalibrationDate)
 let seriesMeanLHS = seriesLH.Mean()
 let seriesMeanRHS = seriesRH.Mean()
 
+(**
+The shared start date will be at the beginning of the latest starting series.  
+
+$ t^{XY}_0 =  \max (t^{X}_0,t^{Y}_0) $
+
+And we can produce the X' and Y' series that we will use.  
+
+$ \vec{S^{X^{'}}} =  \begin{bmatrix}v^X_{t^{XY}_0}  \\ \vdots \\ v^X_{t^{XY}_T} \end{bmatrix} $
+$ \vec{S^{Y^{'}}} =  \begin{bmatrix}v^Y_{t^{XY}_0}  \\ \vdots \\ v^Y_{t^{XY}_T} \end{bmatrix} $
+
+*)
+
 // For the EWMA part of this calculation, we need to start at the first point in time where both series are avaliable
 let combinedStartDate = if seriesLH.FirstKey() > seriesRH.FirstKey() then seriesLH.FirstKey() else seriesRH.FirstKey()
 
@@ -156,14 +207,54 @@ let combinedStartDate = if seriesLH.FirstKey() > seriesRH.FirstKey() then series
 let ewmaReturnsLH = seriesLH.StartAt(combinedStartDate)
 let ewmaReturnsRH = seriesRH.StartAt(combinedStartDate)
 
+(**
+We will need to define our constants for the EWMA calculation.
+*)
+
+// for the EWMA part of this, we will need to determine the initialisation value and the lambda value.
+
+// lambda can be expressed as a value, or in terms of the Mean age of the data (25y) and the observations per year (4 for quarterly data) 
+// Again, this can differ for "Emerging" assets
+let uncCorrelLambda = (1.0 - (1.0/4.0) / 25.0) //0.99
+
+// the initialisation value is 0.005625, but will be scaled based on the asset type (equity or bond) and if the underlying economy matches for the assets
+// in our example case, we will investigate equity assets that have different underlying economies, which gives us a scaling factor of 0.5
+let uncVarInit = 0.005625
+let uncCovarInit = uncVarInit * 0.5
+
+(**
+We can create our "Expected Covariance" series from the trimmed total return series and the population means.  
+
+$ {cov} (\vec{S^{X^{'}}},\vec{S^{Y^{'}}} ) =  E[(\vec{S^{X^{'}}}-\mu _{X})(\vec{S^{Y^{'}}}-\mu _{Y})] = E[\vec{C^{X^{'}Y^{'}}}]$
+
+Where:  
+
+$\vec{C^{X^{'}Y^{'}}} =  \begin{bmatrix}(v^X_{t^{XY}_0} - \mu _{X}) \times (v^Y_{t^{XY}_0} - \mu _{Y})  \\ \vdots \\ (v^X_{t^{XY}_T} - \mu _{X}) \times (v^Y_{t^{XY}_T} - \mu _{Y}) \end{bmatrix} =  \begin{bmatrix}C_{t_0}  \\ \vdots \\ C_{t_{max}} \end{bmatrix}  $
+*)
+
 // Use the Series mu (over all points) rather than the mean of the ewma period, to calculate the covariance
 let seriesLHMinusMu = ewmaReturnsLH - seriesMeanLHS
 let seriesRHMinusMu = ewmaReturnsRH - seriesMeanRHS
 
+// Multiplying series is pointwise
 let ewmaCovar = seriesLHMinusMu * seriesRHMinusMu
 
 (**
+
+We can now calculate the "weighted covar" - the EWMA value of the $\vec{C^{X^{'}Y^{'}}} $ series.  
+
+The EWMA variance is:  
+
+$ {cov} (\vec{S^{X^{'}}},\vec{S^{Y^{'}}} )_t = cov_t  = \lambda^{XY}_{cov} \times cov_{t-1} + (1 - \lambda^{XY}_{cov}) \times C_{t} $  
+
+And similarly, we can calculate the EWMA variances over the series.
+
+$ {\sigma_{X^{'}}} = var^X_t  = \lambda^X_{var} \times var^X_{t-1} + (1 - \lambda^X_{var}) \times (v^X_{t} - \mu _{X}) ^2$
+
+$ {\sigma_{Y^{'}}} = var^Y_t  = \lambda^Y_{var} \times var^Y_{t-1} + (1 - \lambda^Y_{var}) \times (v^Y_{t} - \mu _{Y}) ^2$
+
 We can use Deedle's "Series.scanValues" function to perform the EWMA weighted Covariance and series Variances.
+
 *)
 let ewmaWeightedCovar = 
     ewmaCovar      
@@ -178,7 +269,10 @@ let ewmaVarRH =
     |> Series.scanValues (fun lastweightedVar thisVar -> uncCorrelLambda * lastweightedVar + (1.0 - uncCorrelLambda) * thisVar ** 2.0 ) uncVarInit
 
 (**
-We can now calculate the correlation based on weighted covariance and variance.
+We can now calculate the correlation based on weighted covariance and variance, and take the value at our calibration date T as the unconditional correlation.  
+
+$ \rho _{X,Y}^{UNC} = cov^{XY}_T / \sqrt{var^X_T*var^Y_T}$
+
 *)
 
 let ewmaCorrel = ewmaWeightedCovar / (ewmaVarLH * ewmaVarRH) ** 0.5
@@ -298,7 +392,7 @@ let getUncCorrelFromPair lambda uncVarInit covarScale (calibrationDate: DateTime
         ewmaCorrel.Get(calibrationDate)
 
 // We will (possibly incorrectly, but this matches the RWTS DB code) assume that the constants are the same for each pair of assets 
-// - in practice we may need the underlying economy info to get the scaling factor out
+// - in practice we may need the underlying economy info correct lambda and asset scaling factor
 let defaultGetUncCorrelFromPair = getUncCorrelFromPair 0.99 0.005625 0.5
 
 // And we can now return the Unc. correlation as above
@@ -318,7 +412,6 @@ defaultGetUncCorrelFromPair oldCalibrationDate "E_GBP" "E_USD"
 <a name="fullmatrix"></a>
 Full correlation matrix from portfolio information
 ================
-Let's try some more speculative stuff.  
 
 We can import the full portfolio list, and calculate the full correlation matrix.  
 
@@ -443,6 +536,21 @@ The E_EUR vol will need to be pushed to the database as the "Unconditional Vol" 
 (*** hide ***)
 fullAssetInfo |> Frame.filterRowValues(fun row -> row.GetAs<float>("In_Euro") = 1.0)
 
+(*** hide ***)
+let correlAndVarianceWithExtraAsset originalCorrel originalVols (assetWeights: Vector<float>) = 
+    let innerCovar = cor2cov originalCorrel originalVols
+    let testNEWVsAssetCovar = assetWeights.ToRowMatrix() * innerCovar
+    let testNEWVariance = assetWeights.ToRowMatrix() * testNEWVsAssetCovar.Transpose()
+    // combine
+    let testInnerCovarWithNEWTopRow = testNEWVsAssetCovar.Stack(innerCovar)
+    let testFullTransposedNEWVsAssetCovar = testNEWVariance.Stack(testNEWVsAssetCovar.Transpose())
+    let testFullCovarWithNEW = testFullTransposedNEWVsAssetCovar.Append(testInnerCovarWithNEWTopRow)
+    let (newFullCorr, newFullVolVector) = cov2corVol testFullCovarWithNEW
+    newFullCorr, newFullVolVector
+
+(*** hide ***)
+correlAndVarianceWithExtraAsset testCorrMatrix testVolVector testEURWeights
+
 (**
 Adding E_SKK
 ================
@@ -464,12 +572,14 @@ We must first define our global equity asset portfolio. This comprises of:
 
 *)
 
-// we have a matrix and a list of assets from above
+// we have a covariance matrix and a list of assets from above
 testUncMatrix.matrix
 testUncMatrix.assets
 
 // We will need to pull in the Unconditional vols for each asset. Here, we will make up some values for the example
 let unconditionalVols = [0.1875;0.165;0.2810]
+
+let uncCovarMatrix = cor2cov testUncMatrix.matrix (unconditionalVols |> List.toSeq |> Vector.Build.DenseOfEnumerable)
 
 // The assumed return on the market portfolio
 let marketPfReturn = 0.04
@@ -486,10 +596,10 @@ let portfolioWeight = marketCap |> Map.map (fun k v -> v / totalMarketCap )
 // So, we will convert the weights into a n * 1 matrix (or if you like, a vector)
 let pfWeightsMatrix = matrix [ assetList |> List.map (fun asset -> portfolioWeight.[asset]) ] |> Matrix.transpose
 
-let pfCovariance = (testUncMatrix.matrix * pfWeightsMatrix).Column(0)
+let pfCovariance = (uncCovarMatrix * pfWeightsMatrix).Column(0)
 
 // the market portfolio variance is equal to wT * Covar * w
-let marketPfVariance = (pfWeightsMatrix.Transpose() * testUncMatrix.matrix * pfWeightsMatrix).[0,0]
+let marketPfVariance = (pfWeightsMatrix.Transpose() * uncCovarMatrix * pfWeightsMatrix).[0,0]
 
 // The market Beta for each asset is equal to covar/porfolioVar
 let marketBetas = pfCovariance |> Seq.map (fun cov -> cov / marketPfVariance)
@@ -551,6 +661,22 @@ fullAssetInfoEuroCaps?weightInEuroPf |> Stats.sum
 // And we can access the weights as a vector for use in the portfolio calculations
 let pfWeightsVector = fullAssetInfoEuroCaps?weightInPf |> Series.values |> Vector.Build.DenseOfEnumerable
 
+(*** hide ***)
+let databaseUncVols = 
+    Frame.ReadCsv<string>(root + "UncVols_EndDec2016.csv", indexCol="Economy")
+    |> Frame.sortRowsByKey
+(*** hide ***)
+let uncVolVector = databaseUncVols?UnconditionalVol |> Series.values |> Vector.Build.DenseOfEnumerable
+(*** hide ***)
+let (fullUncMatrixWithEUR, fullUncVolVectorWithEUR) = correlAndVarianceWithExtraAsset fullUncMatrix.matrix uncVolVector pfWeightsVector
+(*** hide ***)
+let fullUncMatrixDesWithEur = { assets =  "E_EUR" :: fullUncMatrix.assets; matrix = fullUncMatrixWithEUR }
+(*** hide ***)
+let newRowForEUR = [ "Economy_ID" => box 999; "Economy_Type" => box "Developed"; "Underlying_Economy" => box "E_EUR";
+                     "In_Euro" => box false; "In_Market_Portfolio" => box false; "Display_Name" => box "Eurozone"; 
+                     "MarketCap" => box 0.0; "weightInPf" => box 0.0; "weightInEuroPf" => box 0.0 ]|> series
+(*** hide ***)
+fullAssetInfoEuroCaps.Merge("AAA_E_EUR",newRowForEUR)
 
 (**
 <a name="psd"></a>
@@ -579,7 +705,10 @@ let reconstructedTestMatrix = reconstructMatrixFromEigenDecomposition testEigenV
 (**
 For the final output matrix (after E_EUR adjustment), we need to ensure that the matrix is PSD.  
 
-Can we call into our own "PSDCorrelationMatrix" function to make this so?
+Can we call into our own "PSDCorrelationMatrix" function to make this so? We have a tool that will do this for an ESG matrix - 
+can we call this, or call into the inner functionality of this to return a PSD version of the matrix?  
+
+Given below is the PSD adjustment, as specifed in the excel version of RWTS that I found.  
 *)
 
 isPSD fullUncMatrix.matrix

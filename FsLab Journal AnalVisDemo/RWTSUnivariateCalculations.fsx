@@ -55,6 +55,27 @@ let return3MSeries = ReturnSeries ThreeMRatesfromCSV
 let ASX_200_A_REIT_TRI = returnTRISeries "ASX_200_A_REIT"
 let AUDRates = return3MSeries "E_AUD"
 
+(**
+Defining a time series
+-----------------------
+We can represent a time series as:  
+
+A vector of observations:
+
+$ \vec{S^{X}} =  \begin{bmatrix}v^X_{t_0} \\ v^X_{t_1}  \\ \vdots \\ v^X_{t_{max}} \end{bmatrix} $
+
+Where:  
+
+$ v^X_{t_k} \in {\Bbb R} $ i.e. there are no "missing" values in the series  
+
+$ t_0 $ is the first available date in the series;  
+
+$ t_{max} $ is the last available date in the series;  
+
+$ t_k - t_{k-1}  \approx  c $ i.e. the observations are (approximately) equally spaced.  
+
+
+*)
 
 (**
 Initial calculations
@@ -68,7 +89,7 @@ We will start by loading our required data
 
 (**
 <a name="XSReturns"></a>
-Annualised Quarterly Excess Returns
+Quarterly Excess Returns
 ================
 We will start by loading our required data for TRI and 3M rates.
 The TRI will be for the Asset we want to calibrate. The 3M rates will be for the economy underlying the Equity Asset - these are labelled "E_XXX" in our DB, but should just be "XXX".
@@ -83,7 +104,22 @@ let Rates3M = return3MSeries "E_CNY"
 (**
 Note that in the RWTS database, "Economy" is denoted by an "E_XXX" asset. In our proper Time Series service, this will be an Economy code.  
 
-So, to calculate the Annualised Quarterly Excess Returns, we can do the following: 
+So, to calculate the Quarterly Excess Returns: 
+
+The return over the quarter can be calculated as:   
+
+$ TR_{t} = log(TRI^Q_{t}) - log(TRI^Q_{t-3m}) $
+
+And the risk free rate over the quarter is:  
+  
+$ r_{t} = 0.25 + log(1 + r^{3m}_{t-3m}) $
+
+Which gives us an excess return of:  
+
+$ XSR_{t} = TR_{t} - r_{t} $
+
+We calculate this for all avaliable returns - we assume that the risk free rate is zero if we do not have it.  
+
 *)
 
 let XSReturn (tri: Series<DateTime,float>) (threeMRates: Series<DateTime,float>) = 
@@ -154,11 +190,32 @@ Unconditional Volatility is the EWMA volatilty of the Annualised Quarterly Exces
 As we need to calculate a rolling EWMA over the series, we need to define our settings for lambda, and the initialisation value for the variance of the series.  
 *)
 
-let setting_lambda = 0.98
-let setting_initialVal= 0.031102706532478
+// lambda depends on if the asset is "Emerging" or not, in which case it is "Developed"
+let settingLambda = 0.98
+// the initial value of the EWMA series is set on a per-asset basis
+let settingInitialVal = 0.031102706532478
 
 (**
-To perform a EWMA over the series, we need to initialise the new "variance" series at the starting point.
+
+The variance of excess returns can be calculated as an Exponentially Weighted Moving Average as:  
+
+$ var_{t} = \lambda \times var_{t-1} + (1 - \lambda) \times XSR_{t}^2 $
+
+Where we intialise the recursive function at the "InitialVal". 
+
+$ var_{0} = InitialVal $
+
+To get the unconditional volatility, we take the variance at the calibration date (= T), and convert this to an annualised volatility. 
+As we have quarterly returns, we multiply the standard deviation ($ \sqrt{var_T} $) by the square root of the number of quarters per year (sqrt(12/3) = 2).  
+
+$ \sigma^2_{UNC} = 2 \times \sqrt{var_T} $
+
+To perform a EWMA over the series, we need to initialise the new "variance" series at the starting point.  
+
+In F#, we can use the Series "scanValues" function to perform a EWMA folding function over the life of the series.  
+
+As we want to add the initial point as the first value in theis series ($ var_{0} $), we need to filter the first date away, and then add this back on at the end.  
+
 *)
 
 let unconditionalVol lambda initialVal (xsReturns: Series<DateTime,float>)= 
@@ -172,15 +229,15 @@ let unconditionalVol lambda initialVal (xsReturns: Series<DateTime,float>)=
     let variance = 
         xsReturns   
         |> Series.filter (fun k v -> k.Equals(initDate) = false)  
-        |> Series.scanValues (fun var ret -> lambda * var + (1.0 - lambda) * ret ** 2.0 ) initialVal
+        |> Series.scanValues (fun prevVariance currentReturn -> lambda * prevVariance + (1.0 - lambda) * currentReturn ** 2.0 ) initialVal
         |> Series.merge initPoint
     
-    //Finally, we convert the variance to an annualised volatility. As we have quarterly returns, we multiply the quarterly vol (variance ^ 2) by the square root of the number of quarters per year (sqrt(12/3) = 2)    
+    //Finally, we convert the variance to an annualised volatility. 
     let volatility = 2.0 * variance ** 0.5
     volatility
 
 // test this using our XS return series calculated earlier
-let testVolatility = unconditionalVol setting_lambda setting_initialVal testXSReturn
+let testVolatility = unconditionalVol settingLambda settingInitialVal testXSReturn
 
 (**
 Again we can decide to push the data as a full time series, an update to an existing time series or just the latest value at the given calibration date.

@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!--
+      The RWTS - Univariate Statistics parameters will be replaced with the
+      document title extracted from the <h1> element or
+      file name, if there is no <h1> heading
+    -->
+    <title>RWTS - Univariate Statistics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script src="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/js/bootstrap.min.js"></script>
+	<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-MML-AM_CHTML'></script>
+    <link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet">
+    <link type="text/css" rel="stylesheet" href="styles/style.css" />
+    <script src="styles/tips.js" type="text/javascript"></script>
+    
+<style type="text/css">
+  .grid {
+    font-size:11pt;
+    font-family:sans-serif;
+    color:black;
+  }
+
+  .grid ::-webkit-scrollbar  {
+    width:6px;
+    height:6px;
+    background:transparent;
+  }
+
+  .grid ::-webkit-scrollbar-track {
+    background:transparent;
+  }
+
+  .grid ::-webkit-scrollbar-thumb {
+    border-radius:3px;
+    background-color:#c1c1c1;
+  }
+
+  .grid .faded {
+    color:#a0a0a0;
+  }
+
+  .grid tr {
+    background-color: #fdfdfd;
+  }
+
+  .grid tbody tr:nth-child(odd) {
+    background-color: #f4f4f4;
+  }
+
+  .grid thead tr {
+    background: #fdfdfd;
+  }
+
+  .grid table {
+    top:0px;
+    left:0px;
+    width:100%;
+    border-spacing: 0;
+    border-collapse: collapse;
+  }
+
+  .grid td, .grid th {
+    border-bottom:1px solid #a0a0a0;
+    padding:4px 10px 4px 10px;
+    min-width:50px;
+  }
+
+  .grid thead th {
+    border-bottom:3px solid #a0a0a0;
+  }
+
+  .grid th {
+    padding:4px 20px 4px 10px;
+    text-align:left;
+    font-weight:bold;
+  }
+
+  .live-grid {
+    position:relative;
+    overflow:hidden;
+  }
+
+  .live-grid .scroller {
+    overflow-y: scroll;
+    position:absolute;
+    width:100%;
+  }
+
+  .live-grid table {
+    position:absolute;
+  }
+</style>
+
+<script type="text/javascript">
+  function setupGrid(id, viewHeight, serviceUrl) {
+
+    // Create table with given column names & specified number of empty rows
+    function createRows(rowCount, columns) {
+      var head = $(id + " .head").empty();
+      $("<th />").html("#").appendTo(head);
+      for (var i = 0; i < columns.length; i++) {
+        $("<th />").html(columns[i]).appendTo(head);
+      }
+
+      var rows = [];
+      var body = $(id + " .body").empty();
+      for (var i = 0; i < rowCount; i++) {
+        var row = { columns: [] };
+        var tr = $("<tr />").appendTo(body);
+        var th = $("<th />").html("&nbsp;").appendTo(tr);
+        for (var j = 0; j < columns.length; j++) {
+          row.columns.push($("<td />").html("&nbsp;").appendTo(tr));
+        }
+        row.key = th;
+        row.tr = tr;
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    // Once we receive meta-data about the grid from the servier, 
+    // we create the grid, set height of scrollbar and register 
+    // scroll event to update the data on change
+    function initialize(meta) {
+      var rowHeight = $(id + " tbody tr").height() - 1; // Magic constant
+      var thHeight = $(id + " thead tr").height() + 2; // Magic constant 
+      var totalRows = meta.rows;
+      var viewCount = Math.ceil((viewHeight - thHeight) / rowHeight - 1);
+      var tableHeight = rowHeight * Math.min(viewCount, totalRows);
+
+      // Resize and report new size to FSI container (if defined)
+      $(id + " .spacer").css("min-height", (rowHeight * totalRows) + "px");
+      $(id).height(tableHeight + thHeight);
+      $(id + " .scroller").css("margin-top", thHeight + "px");
+      $(id + " .scroller").height(tableHeight);
+      if (window.fsiResizeContent) window.fsiResizeContent();
+
+      // Create table rows of the view
+      var rows = createRows(viewCount, meta.columns);
+      
+      // Update that gets triggered once the current one is done
+      var nextUpdate = null;
+
+      // Update the displayed data on scroll
+      function update(offset) {
+        nextUpdate = offset;
+        for (var i = 0; i < viewCount; i++) {
+          rows[i].tr.show();
+          rows[i].key.addClass("faded");
+          for (var j = 0; j < rows[i].columns.length; j++)
+            rows[i].columns[j].addClass("faded");
+        }
+
+        $.ajax({ url: serviceUrl + "/rows/" + offset + "?count=" + viewCount }).done(function (res) {
+          var data = JSON.parse(res);
+          for (var i = 0; i < viewCount; i++) {
+            var point = data[i];
+            if (point == null) rows[i].tr.hide();
+            else {
+              rows[i].tr.show();
+              rows[i].key.removeClass("faded").html(point.key);
+              for (var j = 0; j < rows[i].columns.length; j++)
+                rows[i].columns[j].removeClass("faded").html(point.columns[j]);
+            }
+          }
+          if (nextUpdate != null && nextUpdate != offset) {
+            console.log("Next: {0}", nextUpdate);
+            update(nextUpdate);
+          }
+          nextUpdate = null;
+        });
+      }
+
+      // Setup scroll handler & call to load first block of data
+      $(id + " .scroller").on("scroll", function () {
+        var offset = Math.ceil($(id + " .scroller").scrollTop() / rowHeight);
+        if (nextUpdate == null)
+          update(offset);
+        else
+          nextUpdate = offset;
+      });
+      update(0);
+    }
+
+    $.ajax({ url: serviceUrl + "/metadata" }).done(function (res) {
+      initialize(JSON.parse(res));
+    });
+  }
+</script>
+<script type="text/javascript">
+      $(function () { setupGrid("#fslab-grid-37340-1", 500, "http://localhost:9759/0"); });
+    </script>
+    <script language="javascript" type="text/javascript">
+      function init()
+      {
+        try {
+          websocket = new WebSocket("ws://" + window.location.hostname + ":" + window.location.port + "/websocket");
+          websocket.onmessage = function(evt) { location.reload(); };
+        } catch (e) { /* silently ignore lack of websockets */ }
+      }
+      window.addEventListener("load", init, false);
+    </script>
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="container">
+      <div class="masthead">
+        <ul class="nav nav-pills pull-right">
+          <li><a href="http://fslab.org">fslab.org</a></li>
+          <li><a href="http://fsharp.github.io/FSharp.Data/">F# Data</a></li>
+          <li><a href="http://bluemountaincapital.github.io/Deedle">Deedle</a></li>
+          <li><a href="http://bluemountaincapital.github.io/FSharpRProvider">R Provider</a></li>
+          <li><a href="http://tahahachana.github.io/XPlot/">XPlot</a></li>
+          <li><a href="http://www.mathdotnet.com/">Math.Net</a></li>
+        </ul>
+        <h3 class="muted">Journal</h3>
+      </div>
+      <hr />
+      <div class="row" style="margin-top:30px">
+        <div class="span1"></div>
+        <div class="span10" id="main">
+          <a name="Top"></a>
+<h1>RWTS - Univariate Statistics</h1>
+<p>Univariate - using only one variable.</p>
+<p>For RWTS, that is to say focusing on one Asset at a time. So for now, we are excluding correlation-style calculations.</p>
+<h1>Required Packages</h1>
+<p>We will require references to:</p>
+<p>System - for DateTime operations</p>
+<p>Deedle - to arrange time series data into Key -&gt; Value "Frames"</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">open</span> <span onmouseout="hideTip(event, 'fs1', 1)" onmouseover="showTip(event, 'fs1', 1)" class="i">System</span>
+<span class="k">open</span> <span onmouseout="hideTip(event, 'fs2', 2)" onmouseover="showTip(event, 'fs2', 2)" class="i">Deedle</span>
+</code></pre></td>
+</tr>
+</table>
+<a name="TSData"></a>
+<h1>Time Series Data</h1>
+<p>We can mock up a "database" of time series data by pulling in a full set of data, up to EndDec2016</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">//All series</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs4', 4)" onmouseover="showTip(event, 'fs4', 4)" class="i">TRIfromCSV</span> <span class="o">=</span> 
+    <span onmouseout="hideTip(event, 'fs5', 5)" onmouseover="showTip(event, 'fs5', 5)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs6', 6)" onmouseover="showTip(event, 'fs6', 6)" class="f">ReadCsv</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 7)" onmouseover="showTip(event, 'fs7', 7)" class="t">DateTime</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs3', 8)" onmouseover="showTip(event, 'fs3', 8)" class="i">root</span> <span class="o">+</span> <span class="s">&quot;TotalReturnIndices_EndDec2016_InColumns.csv&quot;</span>, <span class="i">indexCol</span><span class="o">=</span><span class="s">&quot;Index&quot;</span>, <span class="i">missingValues</span><span class="o">=</span>[|<span class="s">&quot;null&quot;</span>|])
+    <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs5', 9)" onmouseover="showTip(event, 'fs5', 9)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs8', 10)" onmouseover="showTip(event, 'fs8', 10)" class="f">sortRowsByKey</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs9', 11)" onmouseover="showTip(event, 'fs9', 11)" class="i">ThreeMRatesfromCSV</span> <span class="o">=</span> 
+    <span onmouseout="hideTip(event, 'fs5', 12)" onmouseover="showTip(event, 'fs5', 12)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs6', 13)" onmouseover="showTip(event, 'fs6', 13)" class="f">ReadCsv</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 14)" onmouseover="showTip(event, 'fs7', 14)" class="t">DateTime</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs3', 15)" onmouseover="showTip(event, 'fs3', 15)" class="i">root</span> <span class="o">+</span> <span class="s">&quot;ThreeMonthInterestRates_EndDec2016_InColumns.csv&quot;</span>, <span class="i">indexCol</span><span class="o">=</span><span class="s">&quot;Index&quot;</span>, <span class="i">missingValues</span><span class="o">=</span>[|<span class="s">&quot;null&quot;</span>|])
+    <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs5', 16)" onmouseover="showTip(event, 'fs5', 16)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs8', 17)" onmouseover="showTip(event, 'fs8', 17)" class="f">sortRowsByKey</span>
+
+<span class="c">// I can create a function to return all &lt;float&gt; values for each Asset</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs10', 18)" onmouseover="showTip(event, 'fs10', 18)" class="f">ReturnSeries</span> (<span onmouseout="hideTip(event, 'fs11', 19)" onmouseover="showTip(event, 'fs11', 19)" class="i">allSeries</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs5', 20)" onmouseover="showTip(event, 'fs5', 20)" class="t">Frame</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 21)" onmouseover="showTip(event, 'fs7', 21)" class="t">DateTime</span>,<span onmouseout="hideTip(event, 'fs12', 22)" onmouseover="showTip(event, 'fs12', 22)" class="t">string</span><span class="o">&gt;</span>) <span onmouseout="hideTip(event, 'fs13', 23)" onmouseover="showTip(event, 'fs13', 23)" class="i">asset</span> <span class="o">=</span> 
+    <span onmouseout="hideTip(event, 'fs11', 24)" onmouseover="showTip(event, 'fs11', 24)" class="i">allSeries</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs14', 25)" onmouseover="showTip(event, 'fs14', 25)" class="f">GetColumn</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs12', 26)" onmouseover="showTip(event, 'fs12', 26)" class="t">string</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs13', 27)" onmouseover="showTip(event, 'fs13', 27)" class="i">asset</span>) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 28)" onmouseover="showTip(event, 'fs15', 28)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs16', 29)" onmouseover="showTip(event, 'fs16', 29)" class="f">filter</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 30)" onmouseover="showTip(event, 'fs17', 30)" class="i">k</span> <span onmouseout="hideTip(event, 'fs18', 31)" onmouseover="showTip(event, 'fs18', 31)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs18', 32)" onmouseover="showTip(event, 'fs18', 32)" class="i">v</span> <span class="o">&lt;&gt;</span> <span class="s">&quot;null&quot;</span>) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 33)" onmouseover="showTip(event, 'fs15', 33)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs19', 34)" onmouseover="showTip(event, 'fs19', 34)" class="f">map</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 35)" onmouseover="showTip(event, 'fs17', 35)" class="i">k</span> <span onmouseout="hideTip(event, 'fs18', 36)" onmouseover="showTip(event, 'fs18', 36)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs20', 37)" onmouseover="showTip(event, 'fs20', 37)" class="f">float</span> <span onmouseout="hideTip(event, 'fs18', 38)" onmouseover="showTip(event, 'fs18', 38)" class="i">v</span>)
+
+<span class="c">// And I can &quot;bake in&quot; the series to have a 1-argument function to return the required series</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs21', 39)" onmouseover="showTip(event, 'fs21', 39)" class="f">returnTRISeries</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs10', 40)" onmouseover="showTip(event, 'fs10', 40)" class="f">ReturnSeries</span> <span onmouseout="hideTip(event, 'fs4', 41)" onmouseover="showTip(event, 'fs4', 41)" class="i">TRIfromCSV</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs22', 42)" onmouseover="showTip(event, 'fs22', 42)" class="f">return3MSeries</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs10', 43)" onmouseover="showTip(event, 'fs10', 43)" class="f">ReturnSeries</span> <span onmouseout="hideTip(event, 'fs9', 44)" onmouseover="showTip(event, 'fs9', 44)" class="i">ThreeMRatesfromCSV</span>
+
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs23', 45)" onmouseover="showTip(event, 'fs23', 45)" class="i">ASX_200_A_REIT_TRI</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs21', 46)" onmouseover="showTip(event, 'fs21', 46)" class="f">returnTRISeries</span> <span class="s">&quot;ASX_200_A_REIT&quot;</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs24', 47)" onmouseover="showTip(event, 'fs24', 47)" class="i">AUDRates</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs22', 48)" onmouseover="showTip(event, 'fs22', 48)" class="f">return3MSeries</span> <span class="s">&quot;E_AUD&quot;</span>
+</code></pre></td>
+</tr>
+</table>
+<h2>Defining a time series</h2>
+<p>We can represent a time series as:</p>
+<p>A vector of observations:</p>
+<p><span class="math">\(\vec{S^{X}} =  \begin{bmatrix}v^X_{t_0} \\ v^X_{t_1}  \\ \vdots \\ v^X_{t_{max}} \end{bmatrix}\)</span></p>
+<p>Where:</p>
+<p><span class="math">\(v^X_{t_k} \in {\Bbb R}\)</span> i.e. there are no "missing" values in the series</p>
+<p><span class="math">\(t_0\)</span> is the first available date in the series;</p>
+<p><span class="math">\(t_{max}\)</span> is the last available date in the series;</p>
+<p><span class="math">\(t_k - t_{k-1}  \approx  c\)</span> i.e. the observations are (approximately) equally spaced.</p>
+<h1>Initial calculations</h1>
+<p>For most RWTS calculations, we will need a time series of "Annualised Quarterly Excess Returns".
+In current RWTS, this is calculated in each RWTS run and pushed to the "[RWTargetSetting].[Calculated].[tblHistoricReturnsQuarterly]" table.
+The underlying data series are "[RWTargetSetting].[MarketData].[tblTotalReturnIndex]" and "[RWTargetSetting].[MarketData].[tblThreeMonthInterestRates]". These series store the latest values only.</p>
+<p>We will start by loading our required data</p>
+<a name="XSReturns"></a>
+<h1>Quarterly Excess Returns</h1>
+<p>We will start by loading our required data for TRI and 3M rates.
+The TRI will be for the Asset we want to calibrate. The 3M rates will be for the economy underlying the Equity Asset - these are labelled "E_XXX" in our DB, but should just be "XXX".</p>
+<p>For the tool proper, we will pull in data from the relevant "TimeSeries".
+Here, we will pull in data from our mock DB, like so.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs25', 49)" onmouseover="showTip(event, 'fs25', 49)" class="i">TRI</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs21', 50)" onmouseover="showTip(event, 'fs21', 50)" class="f">returnTRISeries</span> <span class="s">&quot;E_CNY&quot;</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs26', 51)" onmouseover="showTip(event, 'fs26', 51)" class="i">Rates3M</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs22', 52)" onmouseover="showTip(event, 'fs22', 52)" class="f">return3MSeries</span> <span class="s">&quot;E_CNY&quot;</span>
+</code></pre></td>
+</tr>
+</table>
+<p>Note that in the RWTS database, "Economy" is denoted by an "E_XXX" asset. In our proper Time Series service, this will be an Economy code.</p>
+<p>So, to calculate the Quarterly Excess Returns:</p>
+<p>The return over the quarter can be calculated as:</p>
+<p><span class="math">\(TR_{t} = log(TRI^Q_{t}) - log(TRI^Q_{t-3m})\)</span></p>
+<p>And the risk free rate over the quarter is:</p>
+<p><span class="math">\(r_{t} = 0.25 + log(1 + r^{3m}_{t-3m})\)</span></p>
+<p>Which gives us an excess return of:</p>
+<p><span class="math">\(XSR_{t} = TR_{t} - r_{t}\)</span></p>
+<p>We calculate this for all avaliable returns - we assume that the risk free rate is zero if we do not have it.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs27', 53)" onmouseover="showTip(event, 'fs27', 53)" class="f">XSReturn</span> (<span onmouseout="hideTip(event, 'fs28', 54)" onmouseover="showTip(event, 'fs28', 54)" class="i">tri</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs15', 55)" onmouseover="showTip(event, 'fs15', 55)" class="t">Series</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 56)" onmouseover="showTip(event, 'fs7', 56)" class="t">DateTime</span>,<span onmouseout="hideTip(event, 'fs20', 57)" onmouseover="showTip(event, 'fs20', 57)" class="t">float</span><span class="o">&gt;</span>) (<span onmouseout="hideTip(event, 'fs29', 58)" onmouseover="showTip(event, 'fs29', 58)" class="i">threeMRates</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs15', 59)" onmouseover="showTip(event, 'fs15', 59)" class="t">Series</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 60)" onmouseover="showTip(event, 'fs7', 60)" class="t">DateTime</span>,<span onmouseout="hideTip(event, 'fs20', 61)" onmouseover="showTip(event, 'fs20', 61)" class="t">float</span><span class="o">&gt;</span>) <span class="o">=</span> 
+    <span class="c">// Calculate log changes over 3M in TRI, and drop the first 3m where we cannot compare</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs30', 62)" onmouseover="showTip(event, 'fs30', 62)" class="i">logTRQtrly</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs31', 63)" onmouseover="showTip(event, 'fs31', 63)" class="f">log</span>(<span onmouseout="hideTip(event, 'fs28', 64)" onmouseover="showTip(event, 'fs28', 64)" class="i">tri</span>) <span class="o">-</span> <span onmouseout="hideTip(event, 'fs31', 65)" onmouseover="showTip(event, 'fs31', 65)" class="f">log</span>(<span onmouseout="hideTip(event, 'fs28', 66)" onmouseover="showTip(event, 'fs28', 66)" class="i">tri</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs32', 67)" onmouseover="showTip(event, 'fs32', 67)" class="f">Shift</span>(<span class="n">3</span>)) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 68)" onmouseover="showTip(event, 'fs15', 68)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs33', 69)" onmouseover="showTip(event, 'fs33', 69)" class="f">dropMissing</span>
+
+    <span class="c">// get the 3M rates, that we want to be in XS of</span>
+    <span class="c">// rates have already been converted</span>
+    <span class="c">// convert to a continuously compounded 3M rate</span>
+    <span class="c">// TODO - Fill missing with CPI changes, for the economies that have missing short rates</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs34', 70)" onmouseover="showTip(event, 'fs34', 70)" class="i">qtrlyRate</span> <span class="o">=</span> <span class="n">0.25</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs31', 71)" onmouseover="showTip(event, 'fs31', 71)" class="f">log</span>(<span class="n">1.0</span> <span class="o">+</span> <span onmouseout="hideTip(event, 'fs29', 72)" onmouseover="showTip(event, 'fs29', 72)" class="i">threeMRates</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs32', 73)" onmouseover="showTip(event, 'fs32', 73)" class="f">Shift</span>(<span class="n">3</span>))
+
+    <span class="c">// We need to truncate the series where we do not have a total return - we are ok when we have a total return, but no 3m rate</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs35', 74)" onmouseover="showTip(event, 'fs35', 74)" class="i">initDate</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs30', 75)" onmouseover="showTip(event, 'fs30', 75)" class="i">logTRQtrly</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs36', 76)" onmouseover="showTip(event, 'fs36', 76)" class="f">GetKeyAt</span>(<span class="n">0</span>)
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs37', 77)" onmouseover="showTip(event, 'fs37', 77)" class="i">truncQtrlyRate</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs34', 78)" onmouseover="showTip(event, 'fs34', 78)" class="i">qtrlyRate</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 79)" onmouseover="showTip(event, 'fs15', 79)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs16', 80)" onmouseover="showTip(event, 'fs16', 80)" class="f">filter</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 81)" onmouseover="showTip(event, 'fs17', 81)" class="i">k</span> <span onmouseout="hideTip(event, 'fs38', 82)" onmouseover="showTip(event, 'fs38', 82)" class="i">v</span> <span class="k">-&gt;</span>  <span onmouseout="hideTip(event, 'fs17', 83)" onmouseover="showTip(event, 'fs17', 83)" class="i">k</span> <span class="o">&gt;</span><span class="o">=</span> <span onmouseout="hideTip(event, 'fs35', 84)" onmouseover="showTip(event, 'fs35', 84)" class="i">initDate</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs39', 85)" onmouseover="showTip(event, 'fs39', 85)" class="i">joinTRITo3m</span> <span class="o">=</span> [ 
+      <span class="s">&quot;LogTRQtrly&quot;</span> <span class="o">=&gt;</span> <span onmouseout="hideTip(event, 'fs30', 86)" onmouseover="showTip(event, 'fs30', 86)" class="i">logTRQtrly</span>;  
+      <span class="s">&quot;QtrlyRate&quot;</span> <span class="o">=&gt;</span> <span onmouseout="hideTip(event, 'fs37', 87)" onmouseover="showTip(event, 'fs37', 87)" class="i">truncQtrlyRate</span> ] <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs5', 88)" onmouseover="showTip(event, 'fs5', 88)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs40', 89)" onmouseover="showTip(event, 'fs40', 89)" class="f">ofColumns</span>
+
+    <span class="c">// Calculate the XS return over the 3m rate - when there are no rates, use the plain return. There should only be missing values on the Right hand side</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs41', 90)" onmouseover="showTip(event, 'fs41', 90)" class="i">fullXSReturns</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs39', 91)" onmouseover="showTip(event, 'fs39', 91)" class="i">joinTRITo3m</span><span class="o">?</span><span class="i">LogTRQtrly</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs39', 92)" onmouseover="showTip(event, 'fs39', 92)" class="i">joinTRITo3m</span><span class="o">?</span><span class="i">QtrlyRate</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 93)" onmouseover="showTip(event, 'fs15', 93)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs42', 94)" onmouseover="showTip(event, 'fs42', 94)" class="f">fillMissingUsing</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 95)" onmouseover="showTip(event, 'fs17', 95)" class="i">k</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs39', 96)" onmouseover="showTip(event, 'fs39', 96)" class="i">joinTRITo3m</span><span class="o">?</span><span class="i">LogTRQtrly</span><span class="o">.</span><span class="f">Get</span>(<span onmouseout="hideTip(event, 'fs17', 97)" onmouseover="showTip(event, 'fs17', 97)" class="i">k</span>))
+
+    <span class="c">//finally, we only want to return values for each quarter end</span>
+    <span onmouseout="hideTip(event, 'fs41', 98)" onmouseover="showTip(event, 'fs41', 98)" class="i">fullXSReturns</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 99)" onmouseover="showTip(event, 'fs15', 99)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs16', 100)" onmouseover="showTip(event, 'fs16', 100)" class="f">filter</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 101)" onmouseover="showTip(event, 'fs17', 101)" class="i">k</span> <span onmouseout="hideTip(event, 'fs38', 102)" onmouseover="showTip(event, 'fs38', 102)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs17', 103)" onmouseover="showTip(event, 'fs17', 103)" class="i">k</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs43', 104)" onmouseover="showTip(event, 'fs43', 104)" class="i">Month</span> <span class="o">%</span> <span class="n">3</span> <span class="o">=</span> <span class="n">0</span>)
+
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs44', 105)" onmouseover="showTip(event, 'fs44', 105)" class="i">testXSReturn</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs27', 106)" onmouseover="showTip(event, 'fs27', 106)" class="f">XSReturn</span> <span onmouseout="hideTip(event, 'fs25', 107)" onmouseover="showTip(event, 'fs25', 107)" class="i">TRI</span> <span onmouseout="hideTip(event, 'fs26', 108)" onmouseover="showTip(event, 'fs26', 108)" class="i">Rates3M</span>
+</code></pre></td>
+</tr>
+</table>
+<p>To check, we can test this against our DB values of XS returns. This can also be imported from CSV.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+<span class="l">8: </span>
+<span class="l">9: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs45', 109)" onmouseover="showTip(event, 'fs45', 109)" class="i">XSReturnsfromCSV</span> <span class="o">=</span> 
+    <span onmouseout="hideTip(event, 'fs5', 110)" onmouseover="showTip(event, 'fs5', 110)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs6', 111)" onmouseover="showTip(event, 'fs6', 111)" class="f">ReadCsv</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 112)" onmouseover="showTip(event, 'fs7', 112)" class="t">DateTime</span><span class="o">&gt;</span>(<span onmouseout="hideTip(event, 'fs3', 113)" onmouseover="showTip(event, 'fs3', 113)" class="i">root</span> <span class="o">+</span> <span class="s">&quot;HistoricReturnsQuarterly_EndDec2016_InColumns.csv&quot;</span>, <span class="i">indexCol</span><span class="o">=</span><span class="s">&quot;Index&quot;</span>, <span class="i">missingValues</span><span class="o">=</span>[|<span class="s">&quot;null&quot;</span>|])
+    <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs5', 114)" onmouseover="showTip(event, 'fs5', 114)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs8', 115)" onmouseover="showTip(event, 'fs8', 115)" class="f">sortRowsByKey</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs46', 116)" onmouseover="showTip(event, 'fs46', 116)" class="f">returnXSReturnSeries</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs10', 117)" onmouseover="showTip(event, 'fs10', 117)" class="f">ReturnSeries</span> <span onmouseout="hideTip(event, 'fs45', 118)" onmouseover="showTip(event, 'fs45', 118)" class="i">XSReturnsfromCSV</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs47', 119)" onmouseover="showTip(event, 'fs47', 119)" class="i">joinOurCalcsToDBCalcs</span> <span class="o">=</span> [ 
+      <span class="s">&quot;Ours&quot;</span> <span class="o">=&gt;</span> <span onmouseout="hideTip(event, 'fs44', 120)" onmouseover="showTip(event, 'fs44', 120)" class="i">testXSReturn</span>;  
+      <span class="s">&quot;Db&quot;</span> <span class="o">=&gt;</span> <span onmouseout="hideTip(event, 'fs46', 121)" onmouseover="showTip(event, 'fs46', 121)" class="f">returnXSReturnSeries</span> <span class="s">&quot;E_CNY&quot;</span> ] <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs5', 122)" onmouseover="showTip(event, 'fs5', 122)" class="t">Frame</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs40', 123)" onmouseover="showTip(event, 'fs40', 123)" class="f">ofColumns</span>
+</code></pre></td>
+</tr>
+</table>
+<div class="fslab-html-output"><div class="grid live-grid" id="fslab-grid-37340-1">
+  <table>
+    <thead>
+      <tr class="head"><th>#</th><th>&nbsp;</th></tr>
+    </thead>
+    <tbody class="body">
+      <tr><th>&nbsp;</th><td>&nbsp;</td></tr>
+    </tbody>
+  </table>
+  <div class="scroller">
+    <div class="spacer"></div>
+  </div>
+</div>
+</div>
+<p>We can now decide what we want to do with this result. We can push the data as a full time series, or as an update to an existing time series.</p>
+<p>We can now use the time series of excess returns to calculate the RWTS stats that we need.</p>
+<p>BONUS: We can create a function that takes a tuple of ("AssetName", "Economy") and produces the XS return series</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs48', 124)" onmouseover="showTip(event, 'fs48', 124)" class="f">getXSReturn</span> <span onmouseout="hideTip(event, 'fs49', 125)" onmouseover="showTip(event, 'fs49', 125)" class="i">myTuple</span> <span class="o">=</span> 
+    <span class="k">let</span> (<span onmouseout="hideTip(event, 'fs13', 126)" onmouseover="showTip(event, 'fs13', 126)" class="i">asset</span>, <span onmouseout="hideTip(event, 'fs50', 127)" onmouseover="showTip(event, 'fs50', 127)" class="i">econ</span>) <span class="o">=</span> <span onmouseout="hideTip(event, 'fs49', 128)" onmouseover="showTip(event, 'fs49', 128)" class="i">myTuple</span>    
+    <span onmouseout="hideTip(event, 'fs27', 129)" onmouseover="showTip(event, 'fs27', 129)" class="f">XSReturn</span> (<span onmouseout="hideTip(event, 'fs21', 130)" onmouseover="showTip(event, 'fs21', 130)" class="f">returnTRISeries</span> <span onmouseout="hideTip(event, 'fs13', 131)" onmouseover="showTip(event, 'fs13', 131)" class="i">asset</span>) (<span onmouseout="hideTip(event, 'fs22', 132)" onmouseover="showTip(event, 'fs22', 132)" class="f">return3MSeries</span> <span onmouseout="hideTip(event, 'fs50', 133)" onmouseover="showTip(event, 'fs50', 133)" class="i">econ</span>)
+
+<span onmouseout="hideTip(event, 'fs48', 134)" onmouseover="showTip(event, 'fs48', 134)" class="f">getXSReturn</span> (<span class="s">&quot;E_AUD&quot;</span>,<span class="s">&quot;E_AUD&quot;</span>)
+</code></pre></td>
+</tr>
+</table>
+<a name="UncVol"></a>
+<h1>Unconditional Volatility</h1>
+<p>Unconditional Volatility is the EWMA volatilty of the Annualised Quarterly Excess Returns series.</p>
+<p>As we need to calculate a rolling EWMA over the series, we need to define our settings for lambda, and the initialisation value for the variance of the series.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">// lambda depends on if the asset is &quot;Emerging&quot; or not, in which case it is &quot;Developed&quot;</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs51', 135)" onmouseover="showTip(event, 'fs51', 135)" class="i">settingLambda</span> <span class="o">=</span> <span class="n">0.98</span>
+<span class="c">// the initial value of the EWMA series is set on a per-asset basis</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs52', 136)" onmouseover="showTip(event, 'fs52', 136)" class="i">settingInitialVal</span> <span class="o">=</span> <span class="n">0.031102706532478</span>
+</code></pre></td>
+</tr>
+</table>
+<p>The variance of excess returns can be calculated as an Exponentially Weighted Moving Average as:</p>
+<p><span class="math">\(var_{t} = \lambda \times var_{t-1} + (1 - \lambda) \times XSR_{t}^2\)</span></p>
+<p>Where we intialise the recursive function at the "InitialVal".</p>
+<p><span class="math">\(var_{0} = InitialVal\)</span></p>
+<p>To get the unconditional volatility, we take the variance at the calibration date (= T), and convert this to an annualised volatility.
+As we have quarterly returns, we multiply the standard deviation (<span class="math">\(\sqrt{var_T}\)</span>) by the square root of the number of quarters per year (sqrt(12/3) = 2).</p>
+<p><span class="math">\(\sigma^2_{UNC} = 2 \times \sqrt{var_T}\)</span></p>
+<p>To perform a EWMA over the series, we need to initialise the new "variance" series at the starting point.</p>
+<p>In F#, we can use the Series "scanValues" function to perform a EWMA folding function over the life of the series.</p>
+<p>As we want to add the initial point as the first value in theis series (<span class="math">\(var_{0}\)</span>), we need to filter the first date away, and then add this back on at the end.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs53', 137)" onmouseover="showTip(event, 'fs53', 137)" class="f">unconditionalVol</span> <span onmouseout="hideTip(event, 'fs54', 138)" onmouseover="showTip(event, 'fs54', 138)" class="i">lambda</span> <span onmouseout="hideTip(event, 'fs55', 139)" onmouseover="showTip(event, 'fs55', 139)" class="i">initialVal</span> (<span onmouseout="hideTip(event, 'fs56', 140)" onmouseover="showTip(event, 'fs56', 140)" class="i">xsReturns</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs15', 141)" onmouseover="showTip(event, 'fs15', 141)" class="t">Series</span><span class="o">&lt;</span><span onmouseout="hideTip(event, 'fs7', 142)" onmouseover="showTip(event, 'fs7', 142)" class="t">DateTime</span>,<span onmouseout="hideTip(event, 'fs20', 143)" onmouseover="showTip(event, 'fs20', 143)" class="t">float</span><span class="o">&gt;</span>)<span class="o">=</span> 
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs35', 144)" onmouseover="showTip(event, 'fs35', 144)" class="i">initDate</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs56', 145)" onmouseover="showTip(event, 'fs56', 145)" class="i">xsReturns</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs36', 146)" onmouseover="showTip(event, 'fs36', 146)" class="f">GetKeyAt</span>(<span class="n">0</span>)
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs57', 147)" onmouseover="showTip(event, 'fs57', 147)" class="i">initPoint</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs15', 148)" onmouseover="showTip(event, 'fs15', 148)" class="t">Series</span>([<span onmouseout="hideTip(event, 'fs35', 149)" onmouseover="showTip(event, 'fs35', 149)" class="i">initDate</span>], [<span onmouseout="hideTip(event, 'fs55', 150)" onmouseover="showTip(event, 'fs55', 150)" class="i">initialVal</span>])
+
+    
+    <span class="c">// We can now base the variance series, and use Deedle&#39;s &quot;Series.scanValues&quot; to perform the rolling Moving average of squared returns. </span>
+    <span class="c">// We add the initialisation point back on at the end.    </span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs58', 151)" onmouseover="showTip(event, 'fs58', 151)" class="i">variance</span> <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs56', 152)" onmouseover="showTip(event, 'fs56', 152)" class="i">xsReturns</span>   
+        <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 153)" onmouseover="showTip(event, 'fs15', 153)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs16', 154)" onmouseover="showTip(event, 'fs16', 154)" class="f">filter</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs17', 155)" onmouseover="showTip(event, 'fs17', 155)" class="i">k</span> <span onmouseout="hideTip(event, 'fs38', 156)" onmouseover="showTip(event, 'fs38', 156)" class="i">v</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs17', 157)" onmouseover="showTip(event, 'fs17', 157)" class="i">k</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs59', 158)" onmouseover="showTip(event, 'fs59', 158)" class="f">Equals</span>(<span onmouseout="hideTip(event, 'fs35', 159)" onmouseover="showTip(event, 'fs35', 159)" class="i">initDate</span>) <span class="o">=</span> <span class="k">false</span>)  
+        <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 160)" onmouseover="showTip(event, 'fs15', 160)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs60', 161)" onmouseover="showTip(event, 'fs60', 161)" class="f">scanValues</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs61', 162)" onmouseover="showTip(event, 'fs61', 162)" class="i">prevVariance</span> <span onmouseout="hideTip(event, 'fs62', 163)" onmouseover="showTip(event, 'fs62', 163)" class="i">currentReturn</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs54', 164)" onmouseover="showTip(event, 'fs54', 164)" class="i">lambda</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs61', 165)" onmouseover="showTip(event, 'fs61', 165)" class="i">prevVariance</span> <span class="o">+</span> (<span class="n">1.0</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs54', 166)" onmouseover="showTip(event, 'fs54', 166)" class="i">lambda</span>) <span class="o">*</span> <span onmouseout="hideTip(event, 'fs62', 167)" onmouseover="showTip(event, 'fs62', 167)" class="i">currentReturn</span> <span class="o">**</span> <span class="n">2.0</span> ) <span onmouseout="hideTip(event, 'fs55', 168)" onmouseover="showTip(event, 'fs55', 168)" class="i">initialVal</span>
+        <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs15', 169)" onmouseover="showTip(event, 'fs15', 169)" class="t">Series</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs63', 170)" onmouseover="showTip(event, 'fs63', 170)" class="f">merge</span> <span onmouseout="hideTip(event, 'fs57', 171)" onmouseover="showTip(event, 'fs57', 171)" class="i">initPoint</span>
+    
+    <span class="c">//Finally, we convert the variance to an annualised volatility. </span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs64', 172)" onmouseover="showTip(event, 'fs64', 172)" class="i">volatility</span> <span class="o">=</span> <span class="n">2.0</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs58', 173)" onmouseover="showTip(event, 'fs58', 173)" class="i">variance</span> <span class="o">**</span> <span class="n">0.5</span>
+    <span onmouseout="hideTip(event, 'fs64', 174)" onmouseover="showTip(event, 'fs64', 174)" class="i">volatility</span>
+
+<span class="c">// test this using our XS return series calculated earlier</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs65', 175)" onmouseover="showTip(event, 'fs65', 175)" class="i">testVolatility</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs53', 176)" onmouseover="showTip(event, 'fs53', 176)" class="f">unconditionalVol</span> <span onmouseout="hideTip(event, 'fs51', 177)" onmouseover="showTip(event, 'fs51', 177)" class="i">settingLambda</span> <span onmouseout="hideTip(event, 'fs52', 178)" onmouseover="showTip(event, 'fs52', 178)" class="i">settingInitialVal</span> <span onmouseout="hideTip(event, 'fs44', 179)" onmouseover="showTip(event, 'fs44', 179)" class="i">testXSReturn</span>
+</code></pre></td>
+</tr>
+</table>
+<p>Again we can decide to push the data as a full time series, an update to an existing time series or just the latest value at the given calibration date.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs66', 180)" onmouseover="showTip(event, 'fs66', 180)" class="i">finalOutputUncVol</span>  <span class="o">=</span> <span onmouseout="hideTip(event, 'fs65', 181)" onmouseover="showTip(event, 'fs65', 181)" class="i">testVolatility</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs67', 182)" onmouseover="showTip(event, 'fs67', 182)" class="f">Get</span>(<span onmouseout="hideTip(event, 'fs7', 183)" onmouseover="showTip(event, 'fs7', 183)" class="t">DateTime</span>(<span class="n">2016</span>, <span class="n">12</span>, <span class="n">31</span>))
+</code></pre></td>
+</tr>
+</table>
+<table class="pre"><tr><td><pre><code>No value has been returned</code></pre></td></tr></table>
+<p>BONUS: We can create a function that takes a tuple of ("AssetName", "Economy", lambda, initialval) and produces the volatility series</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l">1: </span>
+<span class="l">2: </span>
+<span class="l">3: </span>
+<span class="l">4: </span>
+<span class="l">5: </span>
+<span class="l">6: </span>
+<span class="l">7: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="k">let</span> <span onmouseout="hideTip(event, 'fs68', 184)" onmouseover="showTip(event, 'fs68', 184)" class="f">getUnconditionalVol</span> <span onmouseout="hideTip(event, 'fs69', 185)" onmouseover="showTip(event, 'fs69', 185)" class="i">myTuple</span> <span class="o">=</span> 
+    <span class="k">let</span> (<span onmouseout="hideTip(event, 'fs13', 186)" onmouseover="showTip(event, 'fs13', 186)" class="i">asset</span>, <span onmouseout="hideTip(event, 'fs50', 187)" onmouseover="showTip(event, 'fs50', 187)" class="i">econ</span>, <span onmouseout="hideTip(event, 'fs54', 188)" onmouseover="showTip(event, 'fs54', 188)" class="i">lambda</span>, <span onmouseout="hideTip(event, 'fs70', 189)" onmouseover="showTip(event, 'fs70', 189)" class="i">init</span>) <span class="o">=</span> <span onmouseout="hideTip(event, 'fs69', 190)" onmouseover="showTip(event, 'fs69', 190)" class="i">myTuple</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs71', 191)" onmouseover="showTip(event, 'fs71', 191)" class="f">vol</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs53', 192)" onmouseover="showTip(event, 'fs53', 192)" class="f">unconditionalVol</span> <span onmouseout="hideTip(event, 'fs54', 193)" onmouseover="showTip(event, 'fs54', 193)" class="i">lambda</span> <span onmouseout="hideTip(event, 'fs70', 194)" onmouseover="showTip(event, 'fs70', 194)" class="i">init</span>        
+    <span onmouseout="hideTip(event, 'fs48', 195)" onmouseover="showTip(event, 'fs48', 195)" class="f">getXSReturn</span> (<span onmouseout="hideTip(event, 'fs13', 196)" onmouseover="showTip(event, 'fs13', 196)" class="i">asset</span>, <span onmouseout="hideTip(event, 'fs50', 197)" onmouseover="showTip(event, 'fs50', 197)" class="i">econ</span>) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs71', 198)" onmouseover="showTip(event, 'fs71', 198)" class="f">vol</span>
+
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs72', 199)" onmouseover="showTip(event, 'fs72', 199)" class="i">testgetUnconditionalVol</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs68', 200)" onmouseover="showTip(event, 'fs68', 200)" class="f">getUnconditionalVol</span> (<span class="s">&quot;E_AUD&quot;</span>,<span class="s">&quot;E_AUD&quot;</span>, <span class="n">0.99</span>, <span class="n">0.007747769515651</span>)
+<span onmouseout="hideTip(event, 'fs72', 201)" onmouseover="showTip(event, 'fs72', 201)" class="i">testgetUnconditionalVol</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs67', 202)" onmouseover="showTip(event, 'fs67', 202)" class="f">Get</span>(<span onmouseout="hideTip(event, 'fs7', 203)" onmouseover="showTip(event, 'fs7', 203)" class="t">DateTime</span>(<span class="n">2016</span>, <span class="n">12</span>, <span class="n">31</span>))
+</code></pre></td>
+</tr>
+</table>
+<a name="OneMonthVol"></a>
+<h1>EWMA One Month Vol and Implied One Month Vol tools</h1>
+<p>We have already implemented tools to calculate the one-month volatility targets.</p>
+<p>We use the "Implied One Month Vol" tool for assets where an implied volatility is published.</p>
+<p>Where no data is avaliable, we calculate a 1m vol using the excess return series. For this tool, we should refactor it so that it pulls in the Time Series data for excess returns
+, like the Unconditional Volatility tool above.</p>
+<p>Note that these calibration tools are run on a "latest to date" basis using all data up to the CalibrationDate. There is no delta required here.</p>
+<a name="TermStructure"></a>
+<h1>SVJD Volatity term structure</h1>
+<p>We wish to run, on each calibration date, a tool to produce the volatility term structure for each asset.</p>
+<p>The SVJD term structure is a function of
++ some SVJD parameters
++ The latest 1-month volatility (at the Calibration Date)
++ The latest avaliable Unconditional Volatility</p>
+<p>The unconditional vol will be from the last analysis, so will have a delta of -3M or -6M from the calibration date. Getting the "latest avaliable" value for the input should be sufficient here.</p>
+<p>The "DiscreteSVJDCumVol" function should be avaliable in some part of the SVJD tool, or better still within the common maths library.</p>
+<p>To complete this section, I have included a fresh definition of this function below.</p>
+<table class="pre"><tr><td class="lines"><pre class="fssnip"><span class="l"> 1: </span>
+<span class="l"> 2: </span>
+<span class="l"> 3: </span>
+<span class="l"> 4: </span>
+<span class="l"> 5: </span>
+<span class="l"> 6: </span>
+<span class="l"> 7: </span>
+<span class="l"> 8: </span>
+<span class="l"> 9: </span>
+<span class="l">10: </span>
+<span class="l">11: </span>
+<span class="l">12: </span>
+<span class="l">13: </span>
+<span class="l">14: </span>
+<span class="l">15: </span>
+<span class="l">16: </span>
+<span class="l">17: </span>
+<span class="l">18: </span>
+<span class="l">19: </span>
+<span class="l">20: </span>
+<span class="l">21: </span>
+<span class="l">22: </span>
+<span class="l">23: </span>
+<span class="l">24: </span>
+<span class="l">25: </span>
+<span class="l">26: </span>
+<span class="l">27: </span>
+<span class="l">28: </span>
+<span class="l">29: </span>
+<span class="l">30: </span>
+<span class="l">31: </span>
+<span class="l">32: </span>
+<span class="l">33: </span>
+<span class="l">34: </span>
+<span class="l">35: </span>
+<span class="l">36: </span>
+<span class="l">37: </span>
+<span class="l">38: </span>
+<span class="l">39: </span>
+<span class="l">40: </span>
+<span class="l">41: </span>
+<span class="l">42: </span>
+<span class="l">43: </span>
+<span class="l">44: </span>
+<span class="l">45: </span>
+<span class="l">46: </span>
+<span class="l">47: </span>
+<span class="l">48: </span>
+<span class="l">49: </span>
+<span class="l">50: </span>
+<span class="l">51: </span>
+<span class="l">52: </span>
+<span class="l">53: </span>
+</pre></td>
+<td class="snippet"><pre class="fssnip highlighted"><code lang="fsharp"><span class="c">// We can define the SVJD parameters</span>
+<span class="k">type</span> <span onmouseout="hideTip(event, 'fs73', 204)" onmouseover="showTip(event, 'fs73', 204)" class="t">SVJDParameters</span> <span class="o">=</span> {<span onmouseout="hideTip(event, 'fs74', 205)" onmouseover="showTip(event, 'fs74', 205)" class="i">reversionLevel</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 206)" onmouseover="showTip(event, 'fs20', 206)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs75', 207)" onmouseover="showTip(event, 'fs75', 207)" class="i">reversionSpeed</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 208)" onmouseover="showTip(event, 'fs20', 208)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs76', 209)" onmouseover="showTip(event, 'fs76', 209)" class="i">startVal</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 210)" onmouseover="showTip(event, 'fs20', 210)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs77', 211)" onmouseover="showTip(event, 'fs77', 211)" class="i">volOfVariance</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 212)" onmouseover="showTip(event, 'fs20', 212)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs78', 213)" onmouseover="showTip(event, 'fs78', 213)" class="i">Correlation</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 214)" onmouseover="showTip(event, 'fs20', 214)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs79', 215)" onmouseover="showTip(event, 'fs79', 215)" class="i">jumpIntensity</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 216)" onmouseover="showTip(event, 'fs20', 216)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs80', 217)" onmouseover="showTip(event, 'fs80', 217)" class="i">jumpMean</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 218)" onmouseover="showTip(event, 'fs20', 218)" class="t">float</span>; <span onmouseout="hideTip(event, 'fs81', 219)" onmouseover="showTip(event, 'fs81', 219)" class="i">jumpVol</span><span class="o">:</span> <span onmouseout="hideTip(event, 'fs20', 220)" onmouseover="showTip(event, 'fs20', 220)" class="t">float</span> }
+<span class="c">// and set these to their default values (these are updated yearly)</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs82', 221)" onmouseover="showTip(event, 'fs82', 221)" class="i">defaultSVJDParameters</span> <span class="o">=</span> {<span class="i">reversionLevel</span> <span class="o">=</span> <span class="n">0.25</span>; <span class="i">reversionSpeed</span> <span class="o">=</span> <span class="n">4.10636051632234</span>; <span class="i">startVal</span> <span class="o">=</span> <span class="n">0.2</span>; <span class="i">volOfVariance</span> <span class="o">=</span> <span class="n">0.468645736687236</span>; <span class="i">Correlation</span> <span class="o">=</span> <span class="o">-</span><span class="n">0.527442089116611</span>; <span class="i">jumpIntensity</span> <span class="o">=</span> <span class="n">0.0</span>; <span class="i">jumpMean</span> <span class="o">=</span> <span class="n">0.0</span>; <span class="i">jumpVol</span> <span class="o">=</span> <span class="n">0.0</span>}
+
+<span class="c">// we will need to define the 1m and unconditional targets for the given asset</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs83', 222)" onmouseover="showTip(event, 'fs83', 222)" class="i">this1mVol</span> <span class="o">=</span> <span class="n">0.14551565323787</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs84', 223)" onmouseover="showTip(event, 'fs84', 223)" class="i">thisUncVol</span> <span class="o">=</span> <span class="n">0.282190830041867</span>
+
+<span class="c">// We use the square of these as the reversionLevel and volOfVariance SVJD parameters</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs85', 224)" onmouseover="showTip(event, 'fs85', 224)" class="i">thisSVJDParamters</span> <span class="o">=</span> { <span onmouseout="hideTip(event, 'fs82', 225)" onmouseover="showTip(event, 'fs82', 225)" class="i">defaultSVJDParameters</span> <span class="k">with</span> <span class="i">reversionLevel</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs84', 226)" onmouseover="showTip(event, 'fs84', 226)" class="i">thisUncVol</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs84', 227)" onmouseover="showTip(event, 'fs84', 227)" class="i">thisUncVol</span>; <span class="i">startVal</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs83', 228)" onmouseover="showTip(event, 'fs83', 228)" class="i">this1mVol</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs83', 229)" onmouseover="showTip(event, 'fs83', 229)" class="i">this1mVol</span>;}
+
+<span class="c">// Set the constants we will need for extrapolations</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs86', 230)" onmouseover="showTip(event, 'fs86', 230)" class="i">timescaleSVJD</span> <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="n">12.0</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs87', 231)" onmouseover="showTip(event, 'fs87', 231)" class="i">returnMonths</span> <span class="o">=</span> [<span class="n">1</span>;<span class="n">3</span>;<span class="n">6</span>;<span class="n">9</span>;<span class="n">12</span>;<span class="n">24</span>;<span class="n">36</span>;<span class="n">48</span>;<span class="n">60</span>;<span class="n">84</span>;<span class="n">120</span>;<span class="n">360</span>]
+
+
+<span class="c">// finally, we need to create a function to calculate the interpolated vols</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs88', 232)" onmouseover="showTip(event, 'fs88', 232)" class="f">getSVJDInterpolatedVols</span> <span onmouseout="hideTip(event, 'fs89', 233)" onmouseover="showTip(event, 'fs89', 233)" class="i">parameters</span> <span onmouseout="hideTip(event, 'fs90', 234)" onmouseover="showTip(event, 'fs90', 234)" class="i">timescale</span> <span onmouseout="hideTip(event, 'fs91', 235)" onmouseover="showTip(event, 'fs91', 235)" class="i">monthlist</span> <span class="o">=</span> 
+    
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs92', 236)" onmouseover="showTip(event, 'fs92', 236)" class="f">hestonVariance</span> <span onmouseout="hideTip(event, 'fs93', 237)" onmouseover="showTip(event, 'fs93', 237)" class="i">revLevel</span> <span onmouseout="hideTip(event, 'fs94', 238)" onmouseover="showTip(event, 'fs94', 238)" class="i">revSpeed</span> <span onmouseout="hideTip(event, 'fs95', 239)" onmouseover="showTip(event, 'fs95', 239)" class="i">currVol</span> <span onmouseout="hideTip(event, 'fs96', 240)" onmouseover="showTip(event, 'fs96', 240)" class="i">time</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs93', 241)" onmouseover="showTip(event, 'fs93', 241)" class="i">revLevel</span> <span class="o">*</span> (<span class="n">1.0</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs97', 242)" onmouseover="showTip(event, 'fs97', 242)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs98', 243)" onmouseover="showTip(event, 'fs98', 243)" class="f">Exp</span>(<span class="o">-</span><span onmouseout="hideTip(event, 'fs94', 244)" onmouseover="showTip(event, 'fs94', 244)" class="i">revSpeed</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs96', 245)" onmouseover="showTip(event, 'fs96', 245)" class="i">time</span>)) <span class="o">+</span> <span onmouseout="hideTip(event, 'fs95', 246)" onmouseover="showTip(event, 'fs95', 246)" class="i">currVol</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs97', 247)" onmouseover="showTip(event, 'fs97', 247)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs98', 248)" onmouseover="showTip(event, 'fs98', 248)" class="f">Exp</span>(<span class="o">-</span><span onmouseout="hideTip(event, 'fs94', 249)" onmouseover="showTip(event, 'fs94', 249)" class="i">revSpeed</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs96', 250)" onmouseover="showTip(event, 'fs96', 250)" class="i">time</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs99', 251)" onmouseover="showTip(event, 'fs99', 251)" class="f">hestonVarianceOfVariance</span> <span onmouseout="hideTip(event, 'fs93', 252)" onmouseover="showTip(event, 'fs93', 252)" class="i">revLevel</span> <span onmouseout="hideTip(event, 'fs94', 253)" onmouseover="showTip(event, 'fs94', 253)" class="i">revSpeed</span> <span onmouseout="hideTip(event, 'fs95', 254)" onmouseover="showTip(event, 'fs95', 254)" class="i">currVol</span> <span onmouseout="hideTip(event, 'fs100', 255)" onmouseover="showTip(event, 'fs100', 255)" class="i">volVar</span> <span onmouseout="hideTip(event, 'fs96', 256)" onmouseover="showTip(event, 'fs96', 256)" class="i">time</span> <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs93', 257)" onmouseover="showTip(event, 'fs93', 257)" class="i">revLevel</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs100', 258)" onmouseover="showTip(event, 'fs100', 258)" class="i">volVar</span> <span class="o">**</span> <span class="n">2.0</span> <span class="o">*</span> (<span class="n">1.0</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs97', 259)" onmouseover="showTip(event, 'fs97', 259)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs98', 260)" onmouseover="showTip(event, 'fs98', 260)" class="f">Exp</span>(<span class="o">-</span><span class="n">2.0</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs94', 261)" onmouseover="showTip(event, 'fs94', 261)" class="i">revSpeed</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs96', 262)" onmouseover="showTip(event, 'fs96', 262)" class="i">time</span>)) <span class="o">/</span> (<span class="n">2.0</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs94', 263)" onmouseover="showTip(event, 'fs94', 263)" class="i">revSpeed</span>) <span class="o">+</span> <span onmouseout="hideTip(event, 'fs95', 264)" onmouseover="showTip(event, 'fs95', 264)" class="i">currVol</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs100', 265)" onmouseover="showTip(event, 'fs100', 265)" class="i">volVar</span> <span class="o">**</span> <span class="n">2.0</span> <span class="o">*</span> (<span class="n">1.0</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs93', 266)" onmouseover="showTip(event, 'fs93', 266)" class="i">revLevel</span> <span class="o">/</span> <span onmouseout="hideTip(event, 'fs95', 267)" onmouseover="showTip(event, 'fs95', 267)" class="i">currVol</span>) <span class="o">*</span> <span onmouseout="hideTip(event, 'fs97', 268)" onmouseover="showTip(event, 'fs97', 268)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs98', 269)" onmouseover="showTip(event, 'fs98', 269)" class="f">Exp</span>(<span class="o">-</span><span onmouseout="hideTip(event, 'fs94', 270)" onmouseover="showTip(event, 'fs94', 270)" class="i">revSpeed</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs96', 271)" onmouseover="showTip(event, 'fs96', 271)" class="i">time</span>) <span class="o">*</span> (<span class="n">1.0</span> <span class="o">-</span> <span onmouseout="hideTip(event, 'fs97', 272)" onmouseover="showTip(event, 'fs97', 272)" class="t">Math</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs98', 273)" onmouseover="showTip(event, 'fs98', 273)" class="f">Exp</span>(<span class="o">-</span><span onmouseout="hideTip(event, 'fs94', 274)" onmouseover="showTip(event, 'fs94', 274)" class="i">revSpeed</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs96', 275)" onmouseover="showTip(event, 'fs96', 275)" class="i">time</span>)) <span class="o">/</span> <span onmouseout="hideTip(event, 'fs94', 276)" onmouseover="showTip(event, 'fs94', 276)" class="i">revSpeed</span>
+    
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs101', 277)" onmouseover="showTip(event, 'fs101', 277)" class="f">jumpVariance</span> <span onmouseout="hideTip(event, 'fs102', 278)" onmouseover="showTip(event, 'fs102', 278)" class="i">intensity</span> <span onmouseout="hideTip(event, 'fs103', 279)" onmouseover="showTip(event, 'fs103', 279)" class="i">mean</span> <span onmouseout="hideTip(event, 'fs104', 280)" onmouseover="showTip(event, 'fs104', 280)" class="i">vol</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs102', 281)" onmouseover="showTip(event, 'fs102', 281)" class="i">intensity</span> <span class="o">*</span> (<span onmouseout="hideTip(event, 'fs103', 282)" onmouseover="showTip(event, 'fs103', 282)" class="i">mean</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs103', 283)" onmouseover="showTip(event, 'fs103', 283)" class="i">mean</span> <span class="o">+</span> <span onmouseout="hideTip(event, 'fs104', 284)" onmouseover="showTip(event, 'fs104', 284)" class="i">vol</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs104', 285)" onmouseover="showTip(event, 'fs104', 285)" class="i">vol</span>)
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs105', 286)" onmouseover="showTip(event, 'fs105', 286)" class="f">hestonCovariance</span> <span onmouseout="hideTip(event, 'fs93', 287)" onmouseover="showTip(event, 'fs93', 287)" class="i">revLevel</span> <span onmouseout="hideTip(event, 'fs94', 288)" onmouseover="showTip(event, 'fs94', 288)" class="i">revSpeed</span> <span onmouseout="hideTip(event, 'fs95', 289)" onmouseover="showTip(event, 'fs95', 289)" class="i">currVol</span> <span onmouseout="hideTip(event, 'fs100', 290)" onmouseover="showTip(event, 'fs100', 290)" class="i">volVar</span> <span onmouseout="hideTip(event, 'fs106', 291)" onmouseover="showTip(event, 'fs106', 291)" class="i">correl</span> <span onmouseout="hideTip(event, 'fs107', 292)" onmouseover="showTip(event, 'fs107', 292)" class="i">startTime</span> <span onmouseout="hideTip(event, 'fs108', 293)" onmouseover="showTip(event, 'fs108', 293)" class="i">endTime</span> <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs106', 294)" onmouseover="showTip(event, 'fs106', 294)" class="i">correl</span> <span class="o">*</span> ((<span onmouseout="hideTip(event, 'fs92', 295)" onmouseover="showTip(event, 'fs92', 295)" class="f">hestonVariance</span> <span onmouseout="hideTip(event, 'fs93', 296)" onmouseover="showTip(event, 'fs93', 296)" class="i">revLevel</span> <span onmouseout="hideTip(event, 'fs94', 297)" onmouseover="showTip(event, 'fs94', 297)" class="i">revSpeed</span> <span onmouseout="hideTip(event, 'fs95', 298)" onmouseover="showTip(event, 'fs95', 298)" class="i">currVol</span> <span onmouseout="hideTip(event, 'fs108', 299)" onmouseover="showTip(event, 'fs108', 299)" class="i">endTime</span>) <span class="o">*</span> (<span onmouseout="hideTip(event, 'fs99', 300)" onmouseover="showTip(event, 'fs99', 300)" class="f">hestonVarianceOfVariance</span> <span onmouseout="hideTip(event, 'fs93', 301)" onmouseover="showTip(event, 'fs93', 301)" class="i">revLevel</span> <span onmouseout="hideTip(event, 'fs94', 302)" onmouseover="showTip(event, 'fs94', 302)" class="i">revSpeed</span> <span onmouseout="hideTip(event, 'fs95', 303)" onmouseover="showTip(event, 'fs95', 303)" class="i">currVol</span> <span onmouseout="hideTip(event, 'fs100', 304)" onmouseover="showTip(event, 'fs100', 304)" class="i">volVar</span> <span onmouseout="hideTip(event, 'fs107', 305)" onmouseover="showTip(event, 'fs107', 305)" class="i">startTime</span>)) <span class="o">**</span> <span class="n">0.5</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs109', 306)" onmouseover="showTip(event, 'fs109', 306)" class="f">intervalVol</span> <span onmouseout="hideTip(event, 'fs89', 307)" onmouseover="showTip(event, 'fs89', 307)" class="i">parameters</span> <span onmouseout="hideTip(event, 'fs107', 308)" onmouseover="showTip(event, 'fs107', 308)" class="i">startTime</span> <span onmouseout="hideTip(event, 'fs108', 309)" onmouseover="showTip(event, 'fs108', 309)" class="i">endTime</span> <span onmouseout="hideTip(event, 'fs90', 310)" onmouseover="showTip(event, 'fs90', 310)" class="i">timescale</span> <span class="o">=</span> 
+        <span onmouseout="hideTip(event, 'fs92', 311)" onmouseover="showTip(event, 'fs92', 311)" class="f">hestonVariance</span> <span onmouseout="hideTip(event, 'fs89', 312)" onmouseover="showTip(event, 'fs89', 312)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs74', 313)" onmouseover="showTip(event, 'fs74', 313)" class="i">reversionLevel</span> <span onmouseout="hideTip(event, 'fs89', 314)" onmouseover="showTip(event, 'fs89', 314)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs75', 315)" onmouseover="showTip(event, 'fs75', 315)" class="i">reversionSpeed</span> <span onmouseout="hideTip(event, 'fs89', 316)" onmouseover="showTip(event, 'fs89', 316)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs76', 317)" onmouseover="showTip(event, 'fs76', 317)" class="i">startVal</span> <span onmouseout="hideTip(event, 'fs107', 318)" onmouseover="showTip(event, 'fs107', 318)" class="i">startTime</span>
+        <span class="o">+</span> <span class="n">0.25</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs90', 319)" onmouseover="showTip(event, 'fs90', 319)" class="i">timescale</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs99', 320)" onmouseover="showTip(event, 'fs99', 320)" class="f">hestonVarianceOfVariance</span> <span onmouseout="hideTip(event, 'fs89', 321)" onmouseover="showTip(event, 'fs89', 321)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs74', 322)" onmouseover="showTip(event, 'fs74', 322)" class="i">reversionLevel</span> <span onmouseout="hideTip(event, 'fs89', 323)" onmouseover="showTip(event, 'fs89', 323)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs75', 324)" onmouseover="showTip(event, 'fs75', 324)" class="i">reversionSpeed</span> <span onmouseout="hideTip(event, 'fs89', 325)" onmouseover="showTip(event, 'fs89', 325)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs76', 326)" onmouseover="showTip(event, 'fs76', 326)" class="i">startVal</span> <span onmouseout="hideTip(event, 'fs89', 327)" onmouseover="showTip(event, 'fs89', 327)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs77', 328)" onmouseover="showTip(event, 'fs77', 328)" class="i">volOfVariance</span> <span onmouseout="hideTip(event, 'fs107', 329)" onmouseover="showTip(event, 'fs107', 329)" class="i">startTime</span>
+        <span class="o">+</span> <span onmouseout="hideTip(event, 'fs101', 330)" onmouseover="showTip(event, 'fs101', 330)" class="f">jumpVariance</span> <span onmouseout="hideTip(event, 'fs89', 331)" onmouseover="showTip(event, 'fs89', 331)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs80', 332)" onmouseover="showTip(event, 'fs80', 332)" class="i">jumpMean</span> <span onmouseout="hideTip(event, 'fs89', 333)" onmouseover="showTip(event, 'fs89', 333)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs80', 334)" onmouseover="showTip(event, 'fs80', 334)" class="i">jumpMean</span> <span onmouseout="hideTip(event, 'fs89', 335)" onmouseover="showTip(event, 'fs89', 335)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs81', 336)" onmouseover="showTip(event, 'fs81', 336)" class="i">jumpVol</span>
+        <span class="o">-</span> <span onmouseout="hideTip(event, 'fs105', 337)" onmouseover="showTip(event, 'fs105', 337)" class="f">hestonCovariance</span> <span onmouseout="hideTip(event, 'fs89', 338)" onmouseover="showTip(event, 'fs89', 338)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs74', 339)" onmouseover="showTip(event, 'fs74', 339)" class="i">reversionLevel</span> <span onmouseout="hideTip(event, 'fs89', 340)" onmouseover="showTip(event, 'fs89', 340)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs75', 341)" onmouseover="showTip(event, 'fs75', 341)" class="i">reversionSpeed</span> <span onmouseout="hideTip(event, 'fs89', 342)" onmouseover="showTip(event, 'fs89', 342)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs76', 343)" onmouseover="showTip(event, 'fs76', 343)" class="i">startVal</span> <span onmouseout="hideTip(event, 'fs89', 344)" onmouseover="showTip(event, 'fs89', 344)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs77', 345)" onmouseover="showTip(event, 'fs77', 345)" class="i">volOfVariance</span> <span onmouseout="hideTip(event, 'fs89', 346)" onmouseover="showTip(event, 'fs89', 346)" class="i">parameters</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs78', 347)" onmouseover="showTip(event, 'fs78', 347)" class="i">Correlation</span> <span onmouseout="hideTip(event, 'fs107', 348)" onmouseover="showTip(event, 'fs107', 348)" class="i">startTime</span> <span onmouseout="hideTip(event, 'fs108', 349)" onmouseover="showTip(event, 'fs108', 349)" class="i">endTime</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs110', 350)" onmouseover="showTip(event, 'fs110', 350)" class="i">sortedOutputMonths</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs91', 351)" onmouseover="showTip(event, 'fs91', 351)" class="i">monthlist</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 352)" onmouseover="showTip(event, 'fs111', 352)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs112', 353)" onmouseover="showTip(event, 'fs112', 353)" class="f">sort</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs113', 354)" onmouseover="showTip(event, 'fs113', 354)" class="i">maxTermInMonths</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs91', 355)" onmouseover="showTip(event, 'fs91', 355)" class="i">monthlist</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 356)" onmouseover="showTip(event, 'fs111', 356)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs114', 357)" onmouseover="showTip(event, 'fs114', 357)" class="f">max</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs20', 358)" onmouseover="showTip(event, 'fs20', 358)" class="f">float</span>
+
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs115', 359)" onmouseover="showTip(event, 'fs115', 359)" class="i">termsSVJD</span> <span class="o">=</span> [<span class="n">0.0</span><span class="o">..</span><span onmouseout="hideTip(event, 'fs113', 360)" onmouseover="showTip(event, 'fs113', 360)" class="i">maxTermInMonths</span>] <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 361)" onmouseover="showTip(event, 'fs111', 361)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs116', 362)" onmouseover="showTip(event, 'fs116', 362)" class="f">map</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs117', 363)" onmouseover="showTip(event, 'fs117', 363)" class="i">t</span> <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs117', 364)" onmouseover="showTip(event, 'fs117', 364)" class="i">t</span> <span class="o">*</span> <span onmouseout="hideTip(event, 'fs90', 365)" onmouseover="showTip(event, 'fs90', 365)" class="i">timescale</span>)
+    
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs118', 366)" onmouseover="showTip(event, 'fs118', 366)" class="i">intervalsSVJD</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs115', 367)" onmouseover="showTip(event, 'fs115', 367)" class="i">termsSVJD</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 368)" onmouseover="showTip(event, 'fs111', 368)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs119', 369)" onmouseover="showTip(event, 'fs119', 369)" class="f">pairwise</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs120', 370)" onmouseover="showTip(event, 'fs120', 370)" class="i">intervalVols</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs118', 371)" onmouseover="showTip(event, 'fs118', 371)" class="i">intervalsSVJD</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 372)" onmouseover="showTip(event, 'fs111', 372)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs116', 373)" onmouseover="showTip(event, 'fs116', 373)" class="f">map</span> (<span class="k">fun</span> (<span onmouseout="hideTip(event, 'fs121', 374)" onmouseover="showTip(event, 'fs121', 374)" class="i">t1</span>, <span onmouseout="hideTip(event, 'fs122', 375)" onmouseover="showTip(event, 'fs122', 375)" class="i">t2</span>) <span class="k">-&gt;</span> <span onmouseout="hideTip(event, 'fs109', 376)" onmouseover="showTip(event, 'fs109', 376)" class="f">intervalVol</span> <span onmouseout="hideTip(event, 'fs89', 377)" onmouseover="showTip(event, 'fs89', 377)" class="i">parameters</span> <span onmouseout="hideTip(event, 'fs121', 378)" onmouseover="showTip(event, 'fs121', 378)" class="i">t1</span> <span onmouseout="hideTip(event, 'fs122', 379)" onmouseover="showTip(event, 'fs122', 379)" class="i">t2</span> <span onmouseout="hideTip(event, 'fs86', 380)" onmouseover="showTip(event, 'fs86', 380)" class="i">timescaleSVJD</span>)
+    
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs123', 381)" onmouseover="showTip(event, 'fs123', 381)" class="f">calcIntervalTotalVol</span> <span onmouseout="hideTip(event, 'fs124', 382)" onmouseover="showTip(event, 'fs124', 382)" class="i">subInt</span> <span class="o">=</span> (<span onmouseout="hideTip(event, 'fs111', 383)" onmouseover="showTip(event, 'fs111', 383)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs125', 384)" onmouseover="showTip(event, 'fs125', 384)" class="f">sum</span> <span onmouseout="hideTip(event, 'fs124', 385)" onmouseover="showTip(event, 'fs124', 385)" class="i">subInt</span> <span class="o">/</span> <span onmouseout="hideTip(event, 'fs20', 386)" onmouseover="showTip(event, 'fs20', 386)" class="f">float</span> <span onmouseout="hideTip(event, 'fs124', 387)" onmouseover="showTip(event, 'fs124', 387)" class="i">subInt</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs126', 388)" onmouseover="showTip(event, 'fs126', 388)" class="i">Length</span>) <span class="o">**</span> <span class="n">0.5</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs127', 389)" onmouseover="showTip(event, 'fs127', 389)" class="f">takeSubInterval</span> <span onmouseout="hideTip(event, 'fs128', 390)" onmouseover="showTip(event, 'fs128', 390)" class="i">months</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs120', 391)" onmouseover="showTip(event, 'fs120', 391)" class="i">intervalVols</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 392)" onmouseover="showTip(event, 'fs111', 392)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs129', 393)" onmouseover="showTip(event, 'fs129', 393)" class="f">take</span> <span onmouseout="hideTip(event, 'fs128', 394)" onmouseover="showTip(event, 'fs128', 394)" class="i">months</span>
+    <span class="k">let</span> <span onmouseout="hideTip(event, 'fs130', 395)" onmouseover="showTip(event, 'fs130', 395)" class="f">subIntTotalVol</span> <span onmouseout="hideTip(event, 'fs128', 396)" onmouseover="showTip(event, 'fs128', 396)" class="i">months</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs127', 397)" onmouseover="showTip(event, 'fs127', 397)" class="f">takeSubInterval</span> <span onmouseout="hideTip(event, 'fs128', 398)" onmouseover="showTip(event, 'fs128', 398)" class="i">months</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs123', 399)" onmouseover="showTip(event, 'fs123', 399)" class="f">calcIntervalTotalVol</span>
+
+    <span onmouseout="hideTip(event, 'fs91', 400)" onmouseover="showTip(event, 'fs91', 400)" class="i">monthlist</span> <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 401)" onmouseover="showTip(event, 'fs111', 401)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs116', 402)" onmouseover="showTip(event, 'fs116', 402)" class="f">map</span> (<span class="k">fun</span> <span onmouseout="hideTip(event, 'fs131', 403)" onmouseover="showTip(event, 'fs131', 403)" class="i">m</span> <span class="k">-&gt;</span> (<span onmouseout="hideTip(event, 'fs131', 404)" onmouseover="showTip(event, 'fs131', 404)" class="i">m</span>, <span onmouseout="hideTip(event, 'fs130', 405)" onmouseover="showTip(event, 'fs130', 405)" class="f">subIntTotalVol</span> <span onmouseout="hideTip(event, 'fs131', 406)" onmouseover="showTip(event, 'fs131', 406)" class="i">m</span>)) <span class="o">|&gt;</span> <span onmouseout="hideTip(event, 'fs111', 407)" onmouseover="showTip(event, 'fs111', 407)" class="t">List</span><span class="o">.</span><span onmouseout="hideTip(event, 'fs132', 408)" onmouseover="showTip(event, 'fs132', 408)" class="f">toSeq</span>
+
+
+<span class="c">// We can now call our function to return the interpolated term structure</span>
+<span class="k">let</span> <span onmouseout="hideTip(event, 'fs133', 409)" onmouseover="showTip(event, 'fs133', 409)" class="i">extrapolatedSVJDTermStructure</span> <span class="o">=</span> <span onmouseout="hideTip(event, 'fs88', 410)" onmouseover="showTip(event, 'fs88', 410)" class="f">getSVJDInterpolatedVols</span> <span onmouseout="hideTip(event, 'fs85', 411)" onmouseover="showTip(event, 'fs85', 411)" class="i">thisSVJDParamters</span> (<span class="n">1.0</span> <span class="o">/</span> <span class="n">12.0</span>) <span onmouseout="hideTip(event, 'fs87', 412)" onmouseover="showTip(event, 'fs87', 412)" class="i">returnMonths</span>
+</code></pre></td>
+</tr>
+</table>
+<table class="pre"><tr><td><pre><code>[(1, 0.1455156532); (3, 0.1962029693); (6, 0.2321868742); (9, 0.2504550674);
+ (12, 0.2610129342); (24, 0.2778200225); (36, 0.2833769248); (48, 0.2861170605);
+ (60, 0.2877486455); (84, 0.2896020593); (120, 0.2909843726);
+ (360, 0.2931216809)]</code></pre></td></tr></table>
+<a name="EffectiveDate"></a>
+<h1>Effective date</h1>
+<p>For most RWTS calculations, we update the latest values twice yearly in March and September. This analysis is done well in advance of the quarter end.
+In these cases, we use data only up to the end of the last quarter - so up to End-December and End-June for the above update cycles.</p>
+<p>To implement this, we want to define an "Effective Date" for the calibration relative to the "Calibration Date", and data will be truncated or sampled at the effective date.</p>
+<p>We will implement this as a "delta" setting within the tool of "-3M" that we will apply to the calibration date.</p>
+<p>Currently, we run RWTS each quarter. When we have broken this up into individual tools, we will only need to run these as required. So, the twice yearly updates will actually be run only every six months.</p>
+<div class="tip" id="fs1">namespace System</div>
+<div class="tip" id="fs2">namespace Deedle</div>
+<div class="tip" id="fs3">val root : string<br /><br />Full name: RWTSUnivariateCalculations.root</div>
+<div class="tip" id="fs4">val TRIfromCSV : Frame&lt;DateTime,string&gt;<br /><br />Full name: RWTSUnivariateCalculations.TRIfromCSV</div>
+<div class="tip" id="fs5">Multiple items<br />module Frame<br /><br />from Deedle<br /><br />--------------------<br />type Frame =<br />&#160;&#160;static member ReadReader : reader:IDataReader -&gt; Frame&lt;int,string&gt;<br />&#160;&#160;static member CustomExpanders : Dictionary&lt;Type,Func&lt;obj,seq&lt;string * Type * obj&gt;&gt;&gt;<br />&#160;&#160;static member NonExpandableInterfaces : List&lt;Type&gt;<br />&#160;&#160;static member NonExpandableTypes : HashSet&lt;Type&gt;<br /><br />Full name: Deedle.Frame<br /><br />--------------------<br />type Frame&lt;&#39;TRowKey,&#39;TColumnKey (requires equality and equality)&gt; =<br />&#160;&#160;interface IDynamicMetaObjectProvider<br />&#160;&#160;interface INotifyCollectionChanged<br />&#160;&#160;interface IFsiFormattable<br />&#160;&#160;interface IFrame<br />&#160;&#160;new : names:seq&lt;&#39;TColumnKey&gt; * columns:seq&lt;ISeries&lt;&#39;TRowKey&gt;&gt; -&gt; Frame&lt;&#39;TRowKey,&#39;TColumnKey&gt;<br />&#160;&#160;new : rowIndex:IIndex&lt;&#39;TRowKey&gt; * columnIndex:IIndex&lt;&#39;TColumnKey&gt; * data:IVector&lt;IVector&gt; * indexBuilder:IIndexBuilder * vectorBuilder:IVectorBuilder -&gt; Frame&lt;&#39;TRowKey,&#39;TColumnKey&gt;<br />&#160;&#160;member AddColumn : column:&#39;TColumnKey * series:ISeries&lt;&#39;TRowKey&gt; -&gt; unit<br />&#160;&#160;member AddColumn : column:&#39;TColumnKey * series:seq&lt;&#39;V&gt; -&gt; unit<br />&#160;&#160;member AddColumn : column:&#39;TColumnKey * series:ISeries&lt;&#39;TRowKey&gt; * lookup:Lookup -&gt; unit<br />&#160;&#160;member AddColumn : column:&#39;TColumnKey * series:seq&lt;&#39;V&gt; * lookup:Lookup -&gt; unit<br />&#160;&#160;...<br /><br />Full name: Deedle.Frame&lt;_,_&gt;<br /><br />--------------------<br />new : names:seq&lt;&#39;TColumnKey&gt; * columns:seq&lt;ISeries&lt;&#39;TRowKey&gt;&gt; -&gt; Frame&lt;&#39;TRowKey,&#39;TColumnKey&gt;<br />new : rowIndex:Indices.IIndex&lt;&#39;TRowKey&gt; * columnIndex:Indices.IIndex&lt;&#39;TColumnKey&gt; * data:IVector&lt;IVector&gt; * indexBuilder:Indices.IIndexBuilder * vectorBuilder:Vectors.IVectorBuilder -&gt; Frame&lt;&#39;TRowKey,&#39;TColumnKey&gt;</div>
+<div class="tip" id="fs6">static member Frame.ReadCsv : path:string * ?hasHeaders:bool * ?inferTypes:bool * ?inferRows:int * ?schema:string * ?separators:string * ?culture:string * ?maxRows:int * ?missingValues:string [] -&gt; Frame&lt;int,string&gt;<br />static member Frame.ReadCsv : stream:IO.Stream * ?hasHeaders:bool * ?inferTypes:bool * ?inferRows:int * ?schema:string * ?separators:string * ?culture:string * ?maxRows:int * ?missingValues:string [] -&gt; Frame&lt;int,string&gt;<br />static member Frame.ReadCsv : reader:IO.TextReader * ?hasHeaders:bool * ?inferTypes:bool * ?inferRows:int * ?schema:string * ?separators:string * ?culture:string * ?maxRows:int * ?missingValues:string [] -&gt; Frame&lt;int,string&gt;<br />static member Frame.ReadCsv : path:string * indexCol:string * ?hasHeaders:bool * ?inferTypes:bool * ?inferRows:int * ?schema:string * ?separators:string * ?culture:string * ?maxRows:int * ?missingValues:string [] -&gt; Frame&lt;&#39;R,string&gt; (requires equality)</div>
+<div class="tip" id="fs7">Multiple items<br />type DateTime =<br />&#160;&#160;struct<br />&#160;&#160;&#160;&#160;new : ticks:int64 -&gt; DateTime + 10 overloads<br />&#160;&#160;&#160;&#160;member Add : value:TimeSpan -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddDays : value:float -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddHours : value:float -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddMilliseconds : value:float -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddMinutes : value:float -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddMonths : months:int -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddSeconds : value:float -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddTicks : value:int64 -&gt; DateTime<br />&#160;&#160;&#160;&#160;member AddYears : value:int -&gt; DateTime<br />&#160;&#160;&#160;&#160;...<br />&#160;&#160;end<br /><br />Full name: System.DateTime<br /><br />--------------------<br />DateTime()<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(ticks: int64) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(ticks: int64, kind: DateTimeKind) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, calendar: Globalization.Calendar) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, hour: int, minute: int, second: int) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, hour: int, minute: int, second: int, kind: DateTimeKind) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, hour: int, minute: int, second: int, calendar: Globalization.Calendar) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, hour: int, minute: int, second: int, millisecond: int) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em><br />DateTime(year: int, month: int, day: int, hour: int, minute: int, second: int, millisecond: int, kind: DateTimeKind) : unit<br />&#160;&#160;&#160;<em>(+0 other overloads)</em></div>
+<div class="tip" id="fs8">val sortRowsByKey : frame:Frame&lt;&#39;R,&#39;C&gt; -&gt; Frame&lt;&#39;R,&#39;C&gt; (requires equality and equality)<br /><br />Full name: Deedle.Frame.sortRowsByKey</div>
+<div class="tip" id="fs9">val ThreeMRatesfromCSV : Frame&lt;DateTime,string&gt;<br /><br />Full name: RWTSUnivariateCalculations.ThreeMRatesfromCSV</div>
+<div class="tip" id="fs10">val ReturnSeries : allSeries:Frame&lt;DateTime,string&gt; -&gt; asset:string -&gt; Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.ReturnSeries</div>
+<div class="tip" id="fs11">val allSeries : Frame&lt;DateTime,string&gt;</div>
+<div class="tip" id="fs12">Multiple items<br />val string : value:&#39;T -&gt; string<br /><br />Full name: Microsoft.FSharp.Core.Operators.string<br /><br />--------------------<br />type string = String<br /><br />Full name: Microsoft.FSharp.Core.string</div>
+<div class="tip" id="fs13">val asset : string</div>
+<div class="tip" id="fs14">member Frame.GetColumn : column:&#39;TColumnKey -&gt; Series&lt;&#39;TRowKey,&#39;R&gt;<br />member Frame.GetColumn : column:&#39;TColumnKey * lookup:Lookup -&gt; Series&lt;&#39;TRowKey,&#39;R&gt;</div>
+<div class="tip" id="fs15">Multiple items<br />module Series<br /><br />from Deedle<br /><br />--------------------<br />type Series =<br />&#160;&#160;static member ofNullables : values:seq&lt;Nullable&lt;&#39;a0&gt;&gt; -&gt; Series&lt;int,&#39;a0&gt; (requires default constructor and value type and &#39;a0 :&gt; ValueType)<br />&#160;&#160;static member ofObservations : observations:seq&lt;&#39;c * &#39;d&gt; -&gt; Series&lt;&#39;c,&#39;d&gt; (requires equality)<br />&#160;&#160;static member ofOptionalObservations : observations:seq&lt;&#39;K * &#39;a1 option&gt; -&gt; Series&lt;&#39;K,&#39;a1&gt; (requires equality)<br />&#160;&#160;static member ofValues : values:seq&lt;&#39;a&gt; -&gt; Series&lt;int,&#39;a&gt;<br /><br />Full name: Deedle.F# Series extensions.Series<br /><br />--------------------<br />type Series&lt;&#39;K,&#39;V (requires equality)&gt; =<br />&#160;&#160;interface IFsiFormattable<br />&#160;&#160;interface ISeries&lt;&#39;K&gt;<br />&#160;&#160;new : pairs:seq&lt;KeyValuePair&lt;&#39;K,&#39;V&gt;&gt; -&gt; Series&lt;&#39;K,&#39;V&gt;<br />&#160;&#160;new : keys:&#39;K [] * values:&#39;V [] -&gt; Series&lt;&#39;K,&#39;V&gt;<br />&#160;&#160;new : keys:seq&lt;&#39;K&gt; * values:seq&lt;&#39;V&gt; -&gt; Series&lt;&#39;K,&#39;V&gt;<br />&#160;&#160;new : index:IIndex&lt;&#39;K&gt; * vector:IVector&lt;&#39;V&gt; * vectorBuilder:IVectorBuilder * indexBuilder:IIndexBuilder -&gt; Series&lt;&#39;K,&#39;V&gt;<br />&#160;&#160;member After : lowerExclusive:&#39;K -&gt; Series&lt;&#39;K,&#39;V&gt;<br />&#160;&#160;member Aggregate : aggregation:Aggregation&lt;&#39;K&gt; * observationSelector:Func&lt;DataSegment&lt;Series&lt;&#39;K,&#39;V&gt;&gt;,KeyValuePair&lt;&#39;TNewKey,OptionalValue&lt;&#39;R&gt;&gt;&gt; -&gt; Series&lt;&#39;TNewKey,&#39;R&gt; (requires equality)<br />&#160;&#160;member Aggregate : aggregation:Aggregation&lt;&#39;K&gt; * keySelector:Func&lt;DataSegment&lt;Series&lt;&#39;K,&#39;V&gt;&gt;,&#39;TNewKey&gt; * valueSelector:Func&lt;DataSegment&lt;Series&lt;&#39;K,&#39;V&gt;&gt;,OptionalValue&lt;&#39;R&gt;&gt; -&gt; Series&lt;&#39;TNewKey,&#39;R&gt; (requires equality)<br />&#160;&#160;member AsyncMaterialize : unit -&gt; Async&lt;Series&lt;&#39;K,&#39;V&gt;&gt;<br />&#160;&#160;...<br /><br />Full name: Deedle.Series&lt;_,_&gt;<br /><br />--------------------<br />new : pairs:seq&lt;Collections.Generic.KeyValuePair&lt;&#39;K,&#39;V&gt;&gt; -&gt; Series&lt;&#39;K,&#39;V&gt;<br />new : keys:seq&lt;&#39;K&gt; * values:seq&lt;&#39;V&gt; -&gt; Series&lt;&#39;K,&#39;V&gt;<br />new : keys:&#39;K [] * values:&#39;V [] -&gt; Series&lt;&#39;K,&#39;V&gt;<br />new : index:Indices.IIndex&lt;&#39;K&gt; * vector:IVector&lt;&#39;V&gt; * vectorBuilder:Vectors.IVectorBuilder * indexBuilder:Indices.IIndexBuilder -&gt; Series&lt;&#39;K,&#39;V&gt;</div>
+<div class="tip" id="fs16">val filter : f:(&#39;K -&gt; &#39;T -&gt; bool) -&gt; series:Series&lt;&#39;K,&#39;T&gt; -&gt; Series&lt;&#39;K,&#39;T&gt; (requires equality)<br /><br />Full name: Deedle.Series.filter</div>
+<div class="tip" id="fs17">val k : DateTime</div>
+<div class="tip" id="fs18">val v : string</div>
+<div class="tip" id="fs19">val map : f:(&#39;K -&gt; &#39;T -&gt; &#39;R) -&gt; series:Series&lt;&#39;K,&#39;T&gt; -&gt; Series&lt;&#39;K,&#39;R&gt; (requires equality)<br /><br />Full name: Deedle.Series.map</div>
+<div class="tip" id="fs20">Multiple items<br />val float : value:&#39;T -&gt; float (requires member op_Explicit)<br /><br />Full name: Microsoft.FSharp.Core.Operators.float<br /><br />--------------------<br />type float = Double<br /><br />Full name: Microsoft.FSharp.Core.float<br /><br />--------------------<br />type float&lt;&#39;Measure&gt; = float<br /><br />Full name: Microsoft.FSharp.Core.float&lt;_&gt;</div>
+<div class="tip" id="fs21">val returnTRISeries : (string -&gt; Series&lt;DateTime,float&gt;)<br /><br />Full name: RWTSUnivariateCalculations.returnTRISeries</div>
+<div class="tip" id="fs22">val return3MSeries : (string -&gt; Series&lt;DateTime,float&gt;)<br /><br />Full name: RWTSUnivariateCalculations.return3MSeries</div>
+<div class="tip" id="fs23">val ASX_200_A_REIT_TRI : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.ASX_200_A_REIT_TRI</div>
+<div class="tip" id="fs24">val AUDRates : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.AUDRates</div>
+<div class="tip" id="fs25">val TRI : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.TRI</div>
+<div class="tip" id="fs26">val Rates3M : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.Rates3M</div>
+<div class="tip" id="fs27">val XSReturn : tri:Series&lt;DateTime,float&gt; -&gt; threeMRates:Series&lt;DateTime,float&gt; -&gt; Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.XSReturn</div>
+<div class="tip" id="fs28">val tri : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs29">val threeMRates : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs30">val logTRQtrly : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs31">val log : value:&#39;T -&gt; &#39;T (requires member Log)<br /><br />Full name: Microsoft.FSharp.Core.Operators.log</div>
+<div class="tip" id="fs32">static member SeriesExtensions.Shift : series:Series&lt;&#39;K,&#39;V&gt; * offset:int -&gt; Series&lt;&#39;K,&#39;V&gt; (requires equality)</div>
+<div class="tip" id="fs33">val dropMissing : series:Series&lt;&#39;K,&#39;T&gt; -&gt; Series&lt;&#39;K,&#39;T&gt; (requires equality)<br /><br />Full name: Deedle.Series.dropMissing</div>
+<div class="tip" id="fs34">val qtrlyRate : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs35">val initDate : DateTime</div>
+<div class="tip" id="fs36">member Series.GetKeyAt : index:int -&gt; &#39;K</div>
+<div class="tip" id="fs37">val truncQtrlyRate : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs38">val v : float</div>
+<div class="tip" id="fs39">val joinTRITo3m : Frame&lt;DateTime,string&gt;</div>
+<div class="tip" id="fs40">static member Frame.ofColumns : cols:Series&lt;&#39;C,#ISeries&lt;&#39;R&gt;&gt; -&gt; Frame&lt;&#39;R,&#39;C&gt; (requires equality and equality)<br />static member Frame.ofColumns : cols:seq&lt;&#39;C * #ISeries&lt;&#39;R&gt;&gt; -&gt; Frame&lt;&#39;R,&#39;C&gt; (requires equality and equality)</div>
+<div class="tip" id="fs41">val fullXSReturns : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs42">val fillMissingUsing : f:(&#39;K -&gt; &#39;T) -&gt; series:Series&lt;&#39;K,&#39;T&gt; -&gt; Series&lt;&#39;K,&#39;T&gt; (requires equality)<br /><br />Full name: Deedle.Series.fillMissingUsing</div>
+<div class="tip" id="fs43">property DateTime.Month: int</div>
+<div class="tip" id="fs44">val testXSReturn : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.testXSReturn</div>
+<div class="tip" id="fs45">val XSReturnsfromCSV : Frame&lt;DateTime,string&gt;<br /><br />Full name: RWTSUnivariateCalculations.XSReturnsfromCSV</div>
+<div class="tip" id="fs46">val returnXSReturnSeries : (string -&gt; Series&lt;DateTime,float&gt;)<br /><br />Full name: RWTSUnivariateCalculations.returnXSReturnSeries</div>
+<div class="tip" id="fs47">val joinOurCalcsToDBCalcs : Frame&lt;DateTime,string&gt;<br /><br />Full name: RWTSUnivariateCalculations.joinOurCalcsToDBCalcs</div>
+<div class="tip" id="fs48">val getXSReturn : string * string -&gt; Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.getXSReturn</div>
+<div class="tip" id="fs49">val myTuple : string * string</div>
+<div class="tip" id="fs50">val econ : string</div>
+<div class="tip" id="fs51">val settingLambda : float<br /><br />Full name: RWTSUnivariateCalculations.settingLambda</div>
+<div class="tip" id="fs52">val settingInitialVal : float<br /><br />Full name: RWTSUnivariateCalculations.settingInitialVal</div>
+<div class="tip" id="fs53">val unconditionalVol : lambda:float -&gt; initialVal:float -&gt; xsReturns:Series&lt;DateTime,float&gt; -&gt; Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.unconditionalVol</div>
+<div class="tip" id="fs54">val lambda : float</div>
+<div class="tip" id="fs55">val initialVal : float</div>
+<div class="tip" id="fs56">val xsReturns : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs57">val initPoint : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs58">val variance : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs59">DateTime.Equals(value: DateTime) : bool<br />DateTime.Equals(value: obj) : bool</div>
+<div class="tip" id="fs60">val scanValues : foldFunc:(&#39;R -&gt; &#39;T -&gt; &#39;R) -&gt; init:&#39;R -&gt; series:Series&lt;&#39;K,&#39;T&gt; -&gt; Series&lt;&#39;K,&#39;R&gt; (requires equality)<br /><br />Full name: Deedle.Series.scanValues</div>
+<div class="tip" id="fs61">val prevVariance : float</div>
+<div class="tip" id="fs62">val currentReturn : float</div>
+<div class="tip" id="fs63">val merge : series1:Series&lt;&#39;K,&#39;V&gt; -&gt; series2:Series&lt;&#39;K,&#39;V&gt; -&gt; Series&lt;&#39;K,&#39;V&gt; (requires equality)<br /><br />Full name: Deedle.Series.merge</div>
+<div class="tip" id="fs64">val volatility : Series&lt;DateTime,float&gt;</div>
+<div class="tip" id="fs65">val testVolatility : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.testVolatility</div>
+<div class="tip" id="fs66">val finalOutputUncVol : float<br /><br />Full name: RWTSUnivariateCalculations.finalOutputUncVol</div>
+<div class="tip" id="fs67">member Series.Get : key:&#39;K -&gt; &#39;V<br />member Series.Get : key:&#39;K * lookup:Lookup -&gt; &#39;V</div>
+<div class="tip" id="fs68">val getUnconditionalVol : string * string * float * float -&gt; Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.getUnconditionalVol</div>
+<div class="tip" id="fs69">val myTuple : string * string * float * float</div>
+<div class="tip" id="fs70">val init : float</div>
+<div class="tip" id="fs71">val vol : (Series&lt;DateTime,float&gt; -&gt; Series&lt;DateTime,float&gt;)</div>
+<div class="tip" id="fs72">val testgetUnconditionalVol : Series&lt;DateTime,float&gt;<br /><br />Full name: RWTSUnivariateCalculations.testgetUnconditionalVol</div>
+<div class="tip" id="fs73">type SVJDParameters =<br />&#160;&#160;{reversionLevel: float;<br />&#160;&#160;&#160;reversionSpeed: float;<br />&#160;&#160;&#160;startVal: float;<br />&#160;&#160;&#160;volOfVariance: float;<br />&#160;&#160;&#160;Correlation: float;<br />&#160;&#160;&#160;jumpIntensity: float;<br />&#160;&#160;&#160;jumpMean: float;<br />&#160;&#160;&#160;jumpVol: float;}<br /><br />Full name: RWTSUnivariateCalculations.SVJDParameters</div>
+<div class="tip" id="fs74">SVJDParameters.reversionLevel: float</div>
+<div class="tip" id="fs75">SVJDParameters.reversionSpeed: float</div>
+<div class="tip" id="fs76">SVJDParameters.startVal: float</div>
+<div class="tip" id="fs77">SVJDParameters.volOfVariance: float</div>
+<div class="tip" id="fs78">SVJDParameters.Correlation: float</div>
+<div class="tip" id="fs79">SVJDParameters.jumpIntensity: float</div>
+<div class="tip" id="fs80">SVJDParameters.jumpMean: float</div>
+<div class="tip" id="fs81">SVJDParameters.jumpVol: float</div>
+<div class="tip" id="fs82">val defaultSVJDParameters : SVJDParameters<br /><br />Full name: RWTSUnivariateCalculations.defaultSVJDParameters</div>
+<div class="tip" id="fs83">val this1mVol : float<br /><br />Full name: RWTSUnivariateCalculations.this1mVol</div>
+<div class="tip" id="fs84">val thisUncVol : float<br /><br />Full name: RWTSUnivariateCalculations.thisUncVol</div>
+<div class="tip" id="fs85">val thisSVJDParamters : SVJDParameters<br /><br />Full name: RWTSUnivariateCalculations.thisSVJDParamters</div>
+<div class="tip" id="fs86">val timescaleSVJD : float<br /><br />Full name: RWTSUnivariateCalculations.timescaleSVJD</div>
+<div class="tip" id="fs87">val returnMonths : int list<br /><br />Full name: RWTSUnivariateCalculations.returnMonths</div>
+<div class="tip" id="fs88">val getSVJDInterpolatedVols : parameters:SVJDParameters -&gt; timescale:float -&gt; monthlist:int list -&gt; seq&lt;int * float&gt;<br /><br />Full name: RWTSUnivariateCalculations.getSVJDInterpolatedVols</div>
+<div class="tip" id="fs89">val parameters : SVJDParameters</div>
+<div class="tip" id="fs90">val timescale : float</div>
+<div class="tip" id="fs91">val monthlist : int list</div>
+<div class="tip" id="fs92">val hestonVariance : (float -&gt; float -&gt; float -&gt; float -&gt; float)</div>
+<div class="tip" id="fs93">val revLevel : float</div>
+<div class="tip" id="fs94">val revSpeed : float</div>
+<div class="tip" id="fs95">val currVol : float</div>
+<div class="tip" id="fs96">val time : float</div>
+<div class="tip" id="fs97">type Math =<br />&#160;&#160;static val PI : float<br />&#160;&#160;static val E : float<br />&#160;&#160;static member Abs : value:sbyte -&gt; sbyte + 6 overloads<br />&#160;&#160;static member Acos : d:float -&gt; float<br />&#160;&#160;static member Asin : d:float -&gt; float<br />&#160;&#160;static member Atan : d:float -&gt; float<br />&#160;&#160;static member Atan2 : y:float * x:float -&gt; float<br />&#160;&#160;static member BigMul : a:int * b:int -&gt; int64<br />&#160;&#160;static member Ceiling : d:decimal -&gt; decimal + 1 overload<br />&#160;&#160;static member Cos : d:float -&gt; float<br />&#160;&#160;...<br /><br />Full name: System.Math</div>
+<div class="tip" id="fs98">Math.Exp(d: float) : float</div>
+<div class="tip" id="fs99">val hestonVarianceOfVariance : (float -&gt; float -&gt; float -&gt; float -&gt; float -&gt; float)</div>
+<div class="tip" id="fs100">val volVar : float</div>
+<div class="tip" id="fs101">val jumpVariance : (float -&gt; float -&gt; float -&gt; float)</div>
+<div class="tip" id="fs102">val intensity : float</div>
+<div class="tip" id="fs103">val mean : float</div>
+<div class="tip" id="fs104">val vol : float</div>
+<div class="tip" id="fs105">val hestonCovariance : (float -&gt; float -&gt; float -&gt; float -&gt; float -&gt; float -&gt; float -&gt; float)</div>
+<div class="tip" id="fs106">val correl : float</div>
+<div class="tip" id="fs107">val startTime : float</div>
+<div class="tip" id="fs108">val endTime : float</div>
+<div class="tip" id="fs109">val intervalVol : (SVJDParameters -&gt; float -&gt; float -&gt; float -&gt; float)</div>
+<div class="tip" id="fs110">val sortedOutputMonths : int list</div>
+<div class="tip" id="fs111">Multiple items<br />module List<br /><br />from Microsoft.FSharp.Collections<br /><br />--------------------<br />type List&lt;&#39;T&gt; =<br />&#160;&#160;| ( [] )<br />&#160;&#160;| ( :: ) of Head: &#39;T * Tail: &#39;T list<br />&#160;&#160;interface IEnumerable<br />&#160;&#160;interface IEnumerable&lt;&#39;T&gt;<br />&#160;&#160;member GetSlice : startIndex:int option * endIndex:int option -&gt; &#39;T list<br />&#160;&#160;member Head : &#39;T<br />&#160;&#160;member IsEmpty : bool<br />&#160;&#160;member Item : index:int -&gt; &#39;T with get<br />&#160;&#160;member Length : int<br />&#160;&#160;member Tail : &#39;T list<br />&#160;&#160;static member Cons : head:&#39;T * tail:&#39;T list -&gt; &#39;T list<br />&#160;&#160;static member Empty : &#39;T list<br /><br />Full name: Microsoft.FSharp.Collections.List&lt;_&gt;</div>
+<div class="tip" id="fs112">val sort : list:&#39;T list -&gt; &#39;T list (requires comparison)<br /><br />Full name: Microsoft.FSharp.Collections.List.sort</div>
+<div class="tip" id="fs113">val maxTermInMonths : float</div>
+<div class="tip" id="fs114">val max : list:&#39;T list -&gt; &#39;T (requires comparison)<br /><br />Full name: Microsoft.FSharp.Collections.List.max</div>
+<div class="tip" id="fs115">val termsSVJD : float list</div>
+<div class="tip" id="fs116">val map : mapping:(&#39;T -&gt; &#39;U) -&gt; list:&#39;T list -&gt; &#39;U list<br /><br />Full name: Microsoft.FSharp.Collections.List.map</div>
+<div class="tip" id="fs117">val t : float</div>
+<div class="tip" id="fs118">val intervalsSVJD : (float * float) list</div>
+<div class="tip" id="fs119">val pairwise : list:&#39;T list -&gt; (&#39;T * &#39;T) list<br /><br />Full name: Microsoft.FSharp.Collections.List.pairwise</div>
+<div class="tip" id="fs120">val intervalVols : float list</div>
+<div class="tip" id="fs121">val t1 : float</div>
+<div class="tip" id="fs122">val t2 : float</div>
+<div class="tip" id="fs123">val calcIntervalTotalVol : (float list -&gt; float)</div>
+<div class="tip" id="fs124">val subInt : float list</div>
+<div class="tip" id="fs125">val sum : list:&#39;T list -&gt; &#39;T (requires member ( + ) and member get_Zero)<br /><br />Full name: Microsoft.FSharp.Collections.List.sum</div>
+<div class="tip" id="fs126">property List.Length: int</div>
+<div class="tip" id="fs127">val takeSubInterval : (int -&gt; float list)</div>
+<div class="tip" id="fs128">val months : int</div>
+<div class="tip" id="fs129">val take : count:int -&gt; list:&#39;T list -&gt; &#39;T list<br /><br />Full name: Microsoft.FSharp.Collections.List.take</div>
+<div class="tip" id="fs130">val subIntTotalVol : (int -&gt; float)</div>
+<div class="tip" id="fs131">val m : int</div>
+<div class="tip" id="fs132">val toSeq : list:&#39;T list -&gt; seq&lt;&#39;T&gt;<br /><br />Full name: Microsoft.FSharp.Collections.List.toSeq</div>
+<div class="tip" id="fs133">val extrapolatedSVJDTermStructure : seq&lt;int * float&gt;<br /><br />Full name: RWTSUnivariateCalculations.extrapolatedSVJDTermStructure</div>
+
+
+          
+        </div>
+        <div class="span1"></div>
+      </div>
+      <hr style="margin-top:50px;"/>
+      <footer class="footer" style="text-align:center">
+        Brought to you by the <a href="http://fsharp.org/technical-groups/">F# Data Science working group</a> and <a href="http://twitter.com/fslaborg">@fslaborg</a>.<br />
+        Submit <a href="https://github.com/fslaborg/FsLab">feedback on GitHub</a> and help us improve FsLab!
+      </footer>
+    </div>
+  </body>
+</html>
