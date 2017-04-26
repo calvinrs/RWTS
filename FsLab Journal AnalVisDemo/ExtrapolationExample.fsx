@@ -31,7 +31,7 @@ let simpleTargetVols = [  (0.25,0.18938213810157);
                             (7.0,0.179412496332435);
                             (10.0,0.169832870147339);]
 
-(*** include-it: simpleTargetVols ***)
+(*** include-value:simpleTargetVols***)
 
 let UncVolLimit = 0.2208
 
@@ -50,9 +50,9 @@ let initialSeedMaxFactor = 1.4
 let seedAlpha = 0.5
 
 
-(* If we choose to "automaticIncreaseMaxFactor" then we check if the maximum market data point already exceeds the maxLimit. 
+(** If we choose to "automaticIncreaseMaxFactor" then we check if the maximum market data point already exceeds the maxLimit. 
 If so, then we increase this by the defined maxFactorIncrease
-**)
+*)
 
 let seedMaxFactor = 
     let initialMaxLimit = initialSeedMaxFactor * UncVolLimit
@@ -107,6 +107,11 @@ let modelImpliedVolatility modelParams t = sqrt((modelParams.sigmaInf * modelPar
 
 // And, we can test this works straight away
 modelImpliedVolatility modelParamSeeds 5.0 //  = 0.2832060327621
+
+
+(**
+The weighting scheme for the calibration is dependent on the shape of the data. For market data with a "v-shaped" last 3 points, we use a different weighting scheme.
+*)
 
 type WeightMethod =  VShaped | Standard
 
@@ -175,14 +180,35 @@ standardWeightedTarget testVShapedVols
 // should have the penultimate point zeroed out
 vShapedWeightedTarget testVShapedVols
 
+(**
+Weighted Squared Error
+======================
+
+To solve the problem, we need to produce a function that returns a weighted squared error for the problem posed.  
+
+We can then use an optimiser to find a model parameterisation that minimises the value of this function.  
+
+The weighting schemes shown below differ slightly from the ones in the excel tool. I believe that we have a weighted squared error, so this should be defined as:  
+
+$ {WeightedMSE}=\sum _{{i=1}}^{n}w_ie_i^{2} $
+
+Whereas in the tool we have:  
+
+$ {ToolMSE}={\frac  {1}{n}}\sum _{{i=1}}^{n}w_ie_i^{2} $
+
+I think at some point we have changed this to a weighted error, but forgot to remove the $ {\frac {1}{n}} $ from the MSE formula.   
+*)
 
 //TODO turn this into a function that returns "extrapSqdError" given the model parameters only
 let errorToMinimise modelParams target = 
 
     let weightedMktModelPairs = target |> List.map (fun (t, v, w) -> (v,  modelImpliedVolatility modelParams t, w))
+    // required if we need to divide by N
     let numWeightedPoints = weightedMktModelPairs |> List.map (fun (mkt, mdl, weight) -> if weight = 0.0 then 0.0 else 1.0) |> List.sum
     let mktModelErrors = weightedMktModelPairs |> List.map (fun (mkt, mdl, weight) -> weight * (mkt - mdl) * (mkt - mdl) )
-    List.sum mktModelErrors / numWeightedPoints
+    // to replicate the excel tool exactly, then the output is List.sum mktModelErrors / numWeightedPoints
+    // otherwise, it is the sum of squared residuals multiplied by the weights
+    List.sum mktModelErrors 
 
 
 
