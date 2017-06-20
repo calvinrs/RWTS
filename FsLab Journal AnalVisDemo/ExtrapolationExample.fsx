@@ -3,13 +3,37 @@
 (**
 Equity Extrapolation in F#
 ================
+
+Equity Extrapolation
+--------------------
+
+We can think of the equity extrapolation process of being in 3 phases:  
+
+1. Calibrate to ATM market volatility based on a standard starting point.
+2. Evaluate the result of the first fit into one of several "cases".
+3. Based on the case we determine, rerun the calibration with an adjusted set of criteria.  
+
+The second "calibration" step may be an iterative process.  
+
+*)
+
+(**
+
+TMT Diagram
+-----------
+
+This TMT layout will make more sense at the end of the document, but I will include this here to give an overview of the expected inputs and outputs of the tool.  
+
+
+![](TMT_EquityExtrap_RealModels.svg)
+
 *)
 
 
 
 (**
 <a name="Settings"></a>
-Defining the tool Settings and Parameters
+Defining the Target Data
 --------------------------
 *)
 
@@ -33,7 +57,29 @@ let simpleTargetVols = [  (0.25,0.18938213810157);
 
 (*** include-value:simpleTargetVols***)
 
+(**
+Target data will enter the tool from the **"MarketData.Equity.ImpliedVol"** model for the given equity index.  
+
+Most commonly, this will come from the "B+H_Market" stream.  
+*)
+
+(**
+<a name="Settings"></a>
+Defining the Tool Settings and Parameters
+--------------------------
+
+First, the unconditional volatility limit will come from a FEA target value. This will have its own input model **TargetData.MC.EquityIVLimit**.  
+*)
+
 let UncVolLimit = 0.2208
+
+
+(**
+The remaining parameters can be considered part of the "Settings" of the tool.  
+
+If we want to handle this in a purely "Model" fashion, this will come from an input **"Settings.MarketData.Equity.ExtrapolatedIV"** model.
+*)
+
 
 // parameter seeds
 
@@ -48,6 +94,19 @@ let seedMinFactor = 1.05
 let initialSeedMaxFactor = 1.4
 
 let seedAlpha = 0.5
+
+(* We will need to set the bounds of the model parameters for the optimisation routine.
+**)
+let seedSigmaZeroLowerBound = 0.0001
+let seedSigmaZeroUpperBound = 100.0 //unbounded, so "something big"
+
+let seedAlphaLowerBound = 0.05
+let seedAlphaUpperBound = 100.0 //unbounded, so "something big"
+
+(* We define the terms that we wish to evaluate for our final answer. 
+Note that the final extrapolated ATM vol curve will be replaced with the actual market values up to the maximum term of the market data.
+**)
+let outMaturities = [0.25;0.5;0.75] @ [1.0..10.0] @ [15.0 ;20.0; 25.0; 30.0;40.0;50.0]
 
 
 (** If we choose to "automaticIncreaseMaxFactor" then we check if the maximum market data point already exceeds the maxLimit. 
@@ -65,22 +124,18 @@ let seedMaxFactor =
 let maxLimit = seedMaxFactor * UncVolLimit
 let minLimit = seedMinFactor * UncVolLimit
 
-(* We will need to set the bounds of the model parameters for the optimisation routine.
+(* We can set the final values for our seeds based on the internal functions defined. 
 **)
-let seedSigmaZeroLowerBound = 0.0001
-let seedSigmaZeroUpperBound = 100.0 //unbounded, so "something big"
-
 let seedSigmaInfLowerBound = minLimit
 let seedSigmaInfUpperBound = maxLimit
 
-let seedAlphaLowerBound = 0.05
-let seedAlphaUpperBound = 100.0 //unbounded, so "something big"
 
-(* We define the terms that we wish to evaluate for our final answer. 
-Note that the final extrapolated ATM vol curve will be replaced with the actual market values up to the maximum term of the market data.
+
+
+(* Now, given all of the input settings, and having calculated the additional internal settings that are a function of other values, 
+we can pass these to a "class" for the ModelParams and OptimiserParams. 
+The eqivalent in F# is to create a record type for each of these "Params".  
 **)
-let outMaturities = [0.25;0.5;0.75] @ [1.0..10.0] @ [15.0 ;20.0; 25.0; 30.0;40.0;50.0]
-
 
 // functions
 // Try with a type as the Seed input
@@ -92,6 +147,7 @@ let modelParamSeeds = {sigmaZero = minLimit; sigmaInf = maxLimit; alpha = seedAl
 let seedsLowerBound = {sigmaZero = seedSigmaZeroLowerBound; sigmaInf = seedSigmaInfLowerBound; alpha = seedAlphaLowerBound }
 let seedsUpperBound = {sigmaZero = seedSigmaZeroUpperBound; sigmaInf = seedSigmaInfUpperBound; alpha = seedAlphaUpperBound }
 
+// Combine Seeds+Bounds to create a full OptimiserParams type
 type OptimiserParams = {seeds: ModelParams; lowerBound: ModelParams; upperBound: ModelParams}
 
 let optimiserStartParams = {seeds = modelParamSeeds; lowerBound = seedsLowerBound; upperBound = seedsUpperBound}
@@ -100,7 +156,13 @@ let optimiserStartParams = {seeds = modelParamSeeds; lowerBound = seedsLowerBoun
 <a name="Extrapolation"></a>
 Calculating the model
 --------------------------
-The actual model that we are trying to calibrate here can be defined in one line:
+
+The implied volatilty (IV) at each point in time T is defined as:  
+
+$$ IV(T) = \sqrt{\sigma_\infty^2 + \frac{(\sigma_0^2-\sigma_\infty^2)}{\alpha T}(1-\exp(-\alpha T))}  $$
+
+
+This can be implemented in F# as follows:
 *)
 
 let modelImpliedVolatility modelParams t = sqrt((modelParams.sigmaInf * modelParams.sigmaInf) + (1.0 - exp(-modelParams.alpha * t)) * (modelParams.sigmaZero * modelParams.sigmaZero - modelParams.sigmaInf * modelParams.sigmaInf) / (modelParams.alpha * t))
@@ -110,6 +172,8 @@ modelImpliedVolatility modelParamSeeds 5.0 //  = 0.2832060327621
 
 
 (**
+Defining the weighting scheme
+------------------------------
 The weighting scheme for the calibration is dependent on the shape of the data. For market data with a "v-shaped" last 3 points, we use a different weighting scheme.
 *)
 
@@ -219,11 +283,34 @@ let extrapSqdError modelParams = finalWeightedTarget |> errorToMinimise modelPar
 // Calculate the Error, based on the starting modelParams
 extrapSqdError modelParamSeeds
 
+(**
+Phase 1 - Initial Calibration
+-------------------
 
-//let errorToMinimise modelParams = 
+Now that we have:
+
+1) A bounded set of parameters
+2) A function that returns the squared error for the problem ("fitting model to market data")
+
+We have all the ingredients to pass this problem to an optimiser, to return the parameter set that minimises the error function.  
 
 
-// We can plot the market points Vs the model values
+> Your mission is to wire in this model to an existing optimiser. The standard in our common libraries will be the "Levenberg-Marquart" optimiser. 
+> Note that any settings for this optimiser will need to be added to the set of tool settings, or the input settings model (or its own input model).
+
+We can pretend for now that we have a function that serves as an optimiser - here, it just returns hard-coded solution, rather than the expected "ModelParams" type containing the solution.
+*)
+
+let solveProblem (errorFunc: ModelParams-> float) (modelParameters: OptimiserParams) = {sigmaZero = 0.158840464328897; sigmaInf = 0.23184; alpha = 0.05 }
+
+// and we can curry this for the Equity Extrapolation problem, as the error function will not change
+
+let solveExtrapSqdError = solveProblem extrapSqdError
+
+(**
+For the final "output" extrapolated ATM volatility, we replace the model value with the actual market value, when that value exists.
+*)
+
 let modelValuesAtMats modelParams marketPoints maturities = 
     let maxTerm = marketPoints |> List.map (fun (t, v) -> t) |> List.max  
     let newValues = maturities |> List.filter (fun t -> t > maxTerm)  |> List.map (fun (t) -> (t,  modelImpliedVolatility modelParams t))
@@ -233,6 +320,9 @@ let modelValues modelParams  = modelValuesAtMats modelParams simpleTargetVols ou
 
 let extrapModel = modelValues modelParamSeeds
 
+(**
+We can visualise the initial "fit" to the target vols (we will be nowhere near at first, as we are starting from the seed values).
+*)
 
 open XPlot.GoogleCharts
 
@@ -263,6 +353,10 @@ plotResult extrapModel
 (*** include-it:plot1 ***)
 
 
+(**
+We can compare this to the "solution" for the calibration, as taken from the first pass calibration in the Excel tool.  
+*)
+
 (*** define-output:plot2 ***)
 // show the initial solution, before we assess the cases
 let initialSolution = {sigmaZero = 0.158840464328897; sigmaInf = 0.23184; alpha = 0.05 }
@@ -276,21 +370,32 @@ solution |> modelValues |> plotResult
 extrapSqdError solution
 
 (**
+---
+*)
+
+(**
 <a name="refitConditions"></a>
-Refining the optimised solution
+Phase 2 - Evaluating the optimised solution
 --------------------------
 To evaluate the solution, we need to evaluate properties about the fit. 
-We then can decide if we need to retry.
+
+Here we will build up a number of predicate cases from smaller test predicates that we will test the initial solution against, to see which "case", if any, we have discovered.  
+
+We then can decide if the case dictates that we need to try a further optimisation.  
+
 *)
 
 (**
 We can define our rounding functions we will use as follows, and test that they behave as expected.
+
+> NOTE: I believe this has been changed to a "nearest10" in a later spec, but this is to be confirmed.
+
 *)
 let nearest5(percentage) = round(20.0 * percentage) / 20.0
 let roundUpToNearest5 percentage = ceil(20.0 * percentage) / 20.0
 let roundDownToNearest5 percentage = floor(20.0 * percentage) / 20.0
 
-
+// Testing these rounding functions
 let testPercentages = [0.7;0.72;0.725;0.73;1.0;1.02;1.025;1.03;1.07;1.08;1.3]
 let testRoundDown  = List.map roundDownToNearest5 testPercentages
 let testRoundUp  = List.map roundUpToNearest5 testPercentages
@@ -371,8 +476,8 @@ let weSayTheMarketIsDownwardSloping = not weSayTheMarketIsUpwardSloping
 (**
 We can now try to evaluate what "case" we have produced, and decide if there is to be any adjustments and refitting done.
 
-There is an orignial case, where if the extrapolated value exceeds the max limit, we add the max limit as a target point and weight it.
-Is this even possible, given the constraints?
+> There is an orignial case, where if the extrapolated value exceeds the max limit, we add the max limit as a target point and weight it.
+> Is this even possible, given the constraints?
 
 Otherwise, we can identify the cases as specified in the documentation and revised excel tool code.
 *)
@@ -394,18 +499,55 @@ let isCase311 = areFinalMarketPointsSlopingDownward  && weSayTheMarketIsUpwardSl
 let isCase312 = areFinalMarketPointsSlopingDownward  && weSayTheMarketIsUpwardSloping && isLastMarketDataPointLessThanSigmaInf && isSigmaInfBelowTheMinLimit && isLastMarketGradientStrictlyPositive
 
 //Final case is if we have not reached any other case, plus the extra condition "isSigmaInfAtTheMinLimit"
+//Removed in the latest spec, we no longer requires this
 let isCase14 = List.forall (not) [isCase11;isCase12;isCase13;isCase2;isCase311;isCase312;isCase321;isCase322] && isSigmaInfAtTheMinLimit
 
-let caseList = ["Case11";"Case12";"Case13";"Case2";"Case311";"Case312";"Case321";"Case322";"Case14";"noAdjustmentCase"]
-let isCaseList = [isCase11;isCase12;isCase13;isCase2;isCase311;isCase312;isCase321;isCase322;isCase14;true]
+let caseList = ["Case11";"Case12";"Case13";"Case2";"Case311";"Case312";"Case321";"Case322";"noAdjustmentCase"]
+let isCaseList = [isCase11;isCase12;isCase13;isCase2;isCase311;isCase312;isCase321;isCase322;true]
 
 let caseMap = List.zip caseList isCaseList
 
 let thisCaseIs = caseMap |> List.find (fun (k, v) -> v) |> fst
 
-let doTheCase caseIs = 
-    match caseIs with
-    | "Case11" -> ()
-    | _ -> ()
-             
+(**
+If we return the "noAdjustmentCase", we can return the initial solution as the final result.
+*)
 
+(**
+3. Checking Case and refitting
+---------------------------
+
+Now that we have run the initial optimisation, and checked this result to see which state we are in, we will then see what further optimisation(s) we will need to do to get to the final result.  
+
+So, we will need something like a switch statement to test what case we have returned, and what actions to take for this case.
+*)
+
+let revisedStartParams = { seedsLowerBound with sigmaInf = 0.1 }
+
+let doTheCase caseIs originalSolution = 
+    match caseIs with
+    | "Case11" -> 
+        // adjust the min factor
+        let revisedSeedMinFactor = roundUpToNearest5 (snd lastMarketPoint / UncVolLimit ) - 0.05
+        let revisedStartParams = {seeds = modelParamSeeds; lowerBound = { seedsLowerBound with sigmaInf = revisedSeedMinFactor }; upperBound = seedsUpperBound}
+        solveExtrapSqdError revisedStartParams 
+    // and so on...
+    // with some cases being recursive   
+    | "noAdjustmentCase" -> originalSolution
+    | _ -> originalSolution         
+
+(**
+Output Requirements
+---------------------------
+
+We will now have a final set of parameter values, and we can evaluate a new "ExtrapModel" curve from it.
+
+We will want to record the final fit and the corresponding values as our key model output. 
+We will also want to see what start parameters we ended up with - most importantly, what bounds we used.
+
+We can also return the initial fit, and return information about the "case" we returned from it. 
+We can also export the initial bounds as they were evaluated, so we can compare with the final bounds.  
+
+For a full summary of what the export should look like, please see *U:\\CS\\2017 Projects\\Equity Extrapolation\\Export Mockups\\Mock_EquityExtrap_NewTooExport.xlsm*
+
+*)
